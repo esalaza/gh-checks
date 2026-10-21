@@ -1,0 +1,721 @@
+#!/usr/bin/env node
+// gh checks: a terminal dashboard of open pull requests with every CI check
+// expanded, refreshed on a timer. No dependencies beyond Node and gh.
+'use strict';
+
+const { execFile } = require('node:child_process');
+
+const HELP = `Usage: gh checks [-R owner/repo | --all] [-i seconds] [--show-passed] [--no-mouse]
+                 [--light | --dark]
+
+A live dashboard of your open pull requests with every CI check shown.
+Re-runs supersede earlier attempts, so a running re-run shows as running
+rather than as the old failure. Piped output prints the list once.
+
+  -R, --repo REPO       only PRs in this repo (default: the repo of the current
+                        folder, when it is one)
+      --all             PRs from every repo, even inside a repo folder
+  -i, --interval SECS   refresh every SECS seconds (default 30, minimum 5)
+      --show-passed     start with passed and skipped checks shown (hidden by
+                        default; p toggles them)
+      --no-mouse        leave the mouse to the terminal (normal text selection)
+      --light, --dark   colours for a light or dark background (default: dark,
+                        or light where the terminal reports a light background)
+  -h, --help            show this help
+
+Keys:
+  ↑ ↓ ← →  or k j h l   move between PRs and checks
+  tab, shift-tab        next / previous PR
+  g, G                  first / last PR
+  o, enter              open the selected PR or check log in the browser
+  R                     re-run failed jobs (selected check, or the whole PR)
+  r                     refresh now
+  p                     hide / show passed and skipped checks
+  1 2 3                 Assigned / Mine / Review requested
+  q, ctrl-c             quit
+
+Mouse:
+  click                 select a PR or check; click it again to open it
+  wheel                 scroll
+  click a tab           switch section
+  Hold Option (macOS terminals) or Shift (most others) to select text.
+
+Symbols: ✗ failed  ● running  ○ queued (yellow)  ⊘ cancelled  ✓ passed  ○ skipped (grey)
+`;
+
+const opts = { repo: '', all: false, interval: 30, hidePassed: true, mouse: true, theme: '' };
+const argv = process.argv.slice(2);
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === '-R' || a === '--repo') opts.repo = argv[++i] || '';
+  else if (a === '-i' || a === '--interval') opts.interval = Math.max(5, Number(argv[++i]) || 30);
+  else if (a === '--show-passed') opts.hidePassed = false;
+  else if (a === '--hide-passed') opts.hidePassed = true;
+  else if (a === '--no-mouse') opts.mouse = false;
+  else if (a === '--all') opts.all = true;
+  else if (a === '--light' || a === '--dark') opts.theme = a.slice(2);
+  else if (a === '-h' || a === '--help') {
+    process.stdout.write(HELP);
+    process.exit(0);
+  } else {
+    process.stderr.write(`gh checks: unknown argument: ${a}\n\n${HELP}`);
+    process.exit(1);
+  }
+}
+
+const SECTIONS = [
+  { title: 'Assigned', qualifiers: 'assignee:@me' },
+  { title: 'Mine', qualifiers: 'author:@me' },
+  { title: 'Review requested', qualifiers: 'review-requested:@me' },
+];
+
+const QUERY = `
+query($q: String!) {
+  search(query: $q, type: ISSUE, first: 50) {
+    issueCount
+    nodes {
+      ... on PullRequest {
+        number title url isDraft
+        repository { name nameWithOwner }
+        commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
+          __typename
+          ... on CheckRun {
+            name status conclusion detailsUrl startedAt
+            checkSuite { workflowRun { databaseId workflow { name } } }
+          }
+          ... on StatusContext { context state targetUrl createdAt }
+        } } } } } }
+      }
+    }
+  }
+}`;
+
+// ---------------------------------------------------------------- data
+
+function gh(args) {
+  return new Promise((resolve, reject) => {
+    execFile('gh', args, { maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (err) reject(new Error((stderr || err.message).trim().split('\n')[0]));
+      else resolve(stdout);
+    });
+  });
+}
+
+const RANK = { fail: 0, run: 1, queue: 2, cancel: 3, pass: 4, skip: 5 };
+const FAILED = new Set(['FAILURE', 'TIMED_OUT', 'STARTUP_FAILURE', 'ACTION_REQUIRED']);
+
+function category(ctx) {
+  if (ctx.__typename === 'CheckRun') {
+    if (ctx.status === 'COMPLETED') {
+      if (ctx.conclusion === 'SUCCESS') return 'pass';
+      if (FAILED.has(ctx.conclusion)) return 'fail';
+      if (ctx.conclusion === 'CANCELLED') return 'cancel';
+      return 'skip';
+    }
+    return ctx.status === 'IN_PROGRESS' ? 'run' : 'queue';
+  }
+  return { SUCCESS: 'pass', FAILURE: 'fail', ERROR: 'fail', PENDING: 'run' }[ctx.state] || 'queue';
+}
+
+function toPr(node) {
+  const contexts = node.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? [];
+  // A re-run adds a new check run beside the old one; keep only the latest attempt.
+  const latest = new Map();
+  for (const ctx of contexts) {
+    const run = ctx.checkSuite?.workflowRun;
+    const check =
+      ctx.__typename === 'CheckRun'
+        ? { wf: run?.workflow?.name ?? '', runId: run?.databaseId ?? null, name: ctx.name,
+            url: ctx.detailsUrl ?? '', t: ctx.startedAt ?? '9999', cat: category(ctx) }
+        : { wf: '', runId: null, name: ctx.context, url: ctx.targetUrl ?? '',
+            t: ctx.createdAt ?? '', cat: category(ctx) };
+    const key = `${check.wf}\u0000${check.name}`;
+    const prev = latest.get(key);
+    if (!prev || check.t >= prev.t) latest.set(key, check);
+  }
+  const checks = [...latest.values()];
+  // Each check is drawn under its workflow's heading, so its own name is enough.
+  for (const c of checks) c.label = c.name;
+  checks.sort((a, b) => RANK[a.cat] - RANK[b.cat] || a.label.localeCompare(b.label));
+  const counts = {};
+  for (const c of checks) counts[c.cat] = (counts[c.cat] || 0) + 1;
+  return { number: node.number, title: node.title, url: node.url, draft: node.isDraft,
+           repo: node.repository.nameWithOwner, repoName: node.repository.name, checks, counts };
+}
+
+// Without -R or --all, scope to the current folder's repo, as gh itself would.
+async function detectRepo() {
+  if (opts.repo || opts.all) return;
+  try {
+    opts.repo = (await gh(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'])).trim();
+  } catch {
+    // Not in a GitHub repo: list every repo.
+  }
+}
+
+async function fetchPrs(section) {
+  const q = `is:pr is:open archived:false sort:updated-desc ${section.qualifiers}` +
+    (opts.repo ? ` repo:${opts.repo}` : '');
+  const { data } = JSON.parse(await gh(['api', 'graphql', '-f', `q=${q}`, '-f', `query=${QUERY}`]));
+  return { total: data.search.issueCount, prs: data.search.nodes.filter((n) => n.number).map(toPr) };
+}
+
+// ---------------------------------------------------------------- drawing
+
+const tty = process.stdout.isTTY && process.stdin.isTTY;
+const color = process.stdout.isTTY && !process.env.NO_COLOR;
+const sgr = (code, s) => (color ? `\x1b[${code}m${s}\x1b[0m` : s);
+// Paints a background behind already-coloured text, re-applying it after
+// each inner reset so the whole run stays highlighted.
+const highlight = (s) =>
+  color ? `\x1b[${T.selBg}m${s.replaceAll('\x1b[0m', `\x1b[0m\x1b[${T.selBg}m`)}\x1b[0m` : s;
+const width = (s) => [...s].length;
+const fit = (s, w) => (width(s) > w ? [...s].slice(0, Math.max(0, w - 1)).join('') + '…' : s);
+const pad = (s, w) => s + ' '.repeat(Math.max(0, w - width(s)));
+
+// 256-colour palettes (every macOS terminal supports them), tuned for a dark
+// or a light background.
+const THEMES = {
+  dark: {
+    fail: '1;38;5;203', run: '1;38;5;214', queue: '38;5;221', cancel: '38;5;248',
+    pass: '1;38;5;84', skip: '38;5;247',
+    number: '1;38;5;68', repo: '38;5;68', prTitle: '1;38;5;231', title: '38;5;255', dim: '38;5;248', rule: '38;5;239', divider: '38;5;238',
+    brand: '1;38;5;213', tabOn: '1;38;5;255;48;5;239', tabOff: '38;5;248',
+    selBg: '48;5;237', key: '1;38;5;75', confirm: '1;38;5;221', colHead: '1;38;5;250',
+  },
+  light: {
+    fail: '1;38;5;160', run: '1;38;5;166', queue: '38;5;136', cancel: '38;5;243',
+    pass: '1;38;5;28', skip: '38;5;246',
+    number: '1;38;5;25', repo: '38;5;25', prTitle: '1;38;5;232', title: '38;5;235', dim: '38;5;242', rule: '38;5;250', divider: '38;5;253',
+    brand: '1;38;5;127', tabOn: '1;38;5;235;48;5;252', tabOff: '38;5;242',
+    selBg: '48;5;254', key: '1;38;5;25', confirm: '1;38;5;136', colHead: '1;38;5;240',
+  },
+};
+// COLORFGBG ("15;0") ends with the background colour where the terminal sets it.
+const bgColour = Number((process.env.COLORFGBG || '').split(';').pop());
+const T = THEMES[opts.theme || (bgColour === 7 || bgColour === 15 ? 'light' : 'dark')];
+
+const SYM = { fail: '✗', run: '●', queue: '○', cancel: '⊘', pass: '✓', skip: '○' };
+const sym = (cat) => sgr(T[cat], SYM[cat]);
+
+let hidePassed = opts.hidePassed;
+const visibleChecks = (pr) => (hidePassed ? pr.checks.filter((c) => RANK[c.cat] < RANK.pass) : pr.checks);
+
+function summary(counts) {
+  const parts = Object.keys(RANK).filter((k) => counts[k]);
+  if (!parts.length) return { text: sgr(T.dim, 'no checks'), w: 9 };
+  return {
+    text: parts.map((k) => sgr(T[k], `${SYM[k]} ${counts[k]}`)).join('  '),
+    w: parts.reduce((w, k) => w + 2 + String(counts[k]).length, 0) + 2 * (parts.length - 1),
+  };
+}
+
+const OTHER = 'Other checks'; // checks posted by apps rather than by a workflow
+const GAP = 3; // spaces between table columns
+
+// The table's columns: every workflow on any listed PR, the busiest first so
+// the order holds between refreshes, and checks from other apps last.
+function tableColumns(prs) {
+  const totals = new Map();
+  for (const pr of prs) {
+    for (const c of pr.checks) totals.set(c.wf || OTHER, (totals.get(c.wf || OTHER) || 0) + 1);
+  }
+  return [...totals.keys()].sort((a, b) =>
+    (a === OTHER) - (b === OTHER) || totals.get(b) - totals.get(a) || a.localeCompare(b));
+}
+
+// One PR's cell under one workflow column: the checks it shows, each with its
+// index in visibleChecks(pr) (which is how the selection names a check), and
+// a count of the passed and skipped ones it hides.
+function cellOf(pr, name) {
+  const shown = visibleChecks(pr);
+  const mine = pr.checks.filter((c) => (c.wf || OTHER) === name);
+  const items = shown.map((c, index) => ({ c, index })).filter(({ c }) => mine.includes(c));
+  const counts = ['pass', 'skip']
+    .map((k) => [k, mine.filter((c) => c.cat === k && !shown.includes(c)).length])
+    .filter(([, n]) => n);
+  return {
+    items,
+    note: counts.map(([k, n]) => `${sym(k)} ${sgr(T.dim, n)}`).join('  '),
+    noteW: counts.reduce((w, [, n]) => w + 2 + String(n).length, 0) + 2 * Math.max(0, counts.length - 1),
+  };
+}
+
+// Sizes each column to its widest heading or cell line, shrinks the widest
+// while the table overflows, and shares any spare width out evenly.
+function columnWidths(prs, names, labels, cols) {
+  const widths = names.map((name, j) => Math.max(width(labels[j]), ...prs.map((pr) => {
+    const { items, noteW } = cellOf(pr, name);
+    return Math.max(noteW, ...items.map(({ c }) => 2 + width(c.label)));
+  })));
+  const avail = cols - 2 - GAP * Math.max(0, names.length - 1);
+  let total = widths.reduce((a, b) => a + b, 0);
+  while (total > avail) {
+    const i = widths.indexOf(Math.max(...widths));
+    if (widths[i] <= 8) break;
+    widths[i]--;
+    total--;
+  }
+  const spare = Math.max(0, avail - total);
+  return widths.map((w) => w + Math.floor(spare / names.length));
+}
+
+// Joins [x, text, visible width] pieces into one line. Padding is counted
+// from the visible widths, as the escape codes in `text` would throw it off.
+function row(pieces) {
+  let line = '';
+  let at = 0;
+  for (const [x, text, w] of pieces) {
+    line += ' '.repeat(Math.max(0, x - at)) + text;
+    at = Math.max(at, x) + w;
+  }
+  return line;
+}
+
+// Word-wraps `text` to `w` columns, in at most `max` lines.
+function wrap(text, w, max) {
+  const out = [];
+  for (const word of text.split(/\s+/)) {
+    const last = out[out.length - 1];
+    if (last !== undefined && width(last) + 1 + width(word) <= w) out[out.length - 1] = `${last} ${word}`;
+    else out.push(word);
+  }
+  if (out.length > max) out.splice(max - 1, out.length, out.slice(max - 1).join(' '));
+  return out.map((line) => fit(line, w));
+}
+
+// Lays out the PRs as a table, one row per PR: the PR itself (number,
+// wrapped title, check counts) in the first column, then a column per
+// workflow. The heading row is returned apart, to be drawn once above the
+// list. `sel` is the selected { pr, check } (check -1 = the PR itself), or
+// null when printing. `hits` holds, per line, the ranges a mouse click can
+// land on, and `cells` each PR's check positions, for moving the cursor.
+function buildLines(prs, cols, sel) {
+  const multi = new Set(prs.map((p) => p.repo)).size > 1;
+  const prW = Math.max(30, Math.min(50, Math.round(cols * 0.28)));
+  const restCols = cols - prW - GAP;
+  const names = tableColumns(prs);
+  // Headings drop a "pr: "-style prefix when the full names don't fit across.
+  let labels = names;
+  let widths = columnWidths(prs, names, labels, restCols);
+  if (widths.some((w, j) => w < width(names[j]))) {
+    labels = names.map((name) => name.replace(/^[^:]+: /, ''));
+    widths = columnWidths(prs, names, labels, restCols);
+  }
+  const xs = [];
+  widths.reduce((x, w) => (xs.push(x), x + w + GAP), 2 + prW + GAP);
+  const heading = row([[2, sgr(T.colHead, 'Pull request'), 12], ...labels.map((label, j) => {
+    const text = fit(label, widths[j]);
+    return [xs[j], sgr(T.colHead, text), width(text)];
+  })]);
+
+  const lines = [];
+  const hits = [];
+  const blocks = [];
+  const cells = [];
+  let cursor = 0;
+  prs.forEach((pr, i) => {
+    const start = lines.length;
+    const selectedPr = sel && sel.pr === i && sel.check < 0;
+    if (selectedPr) cursor = start;
+
+    // The PR cell: number and wrapped title, then the counts (and "draft").
+    const prefix = `${multi ? pr.repoName + ' ' : ''}#${pr.number}`;
+    const indent = width(prefix) + 2;
+    const titleLines = wrap(pr.title, prW - indent, 3);
+    const sum = summary(pr.counts);
+    const prCell = [
+      ...titleLines.map((t, k) => [
+        k === 0 ? `${sgr(T.number, prefix)}  ${sgr(T.prTitle, t)}` : ' '.repeat(indent) + sgr(T.prTitle, t),
+        indent + width(t),
+      ]),
+      [' '.repeat(indent) + sum.text + (pr.draft ? `  ${sgr(T.dim, 'draft')}` : ''), indent + sum.w + (pr.draft ? 7 : 0)],
+    ];
+
+    cells[i] = [];
+    const prCells = names.map((name) => cellOf(pr, name));
+    const height = Math.max(prCell.length, ...prCells.map((pc) => pc.items.length + (pc.note ? 1 : 0)));
+    for (let r = 0; r < height; r++) {
+      const at = lines.length;
+      hits[at] = [{ pr: i, check: -1, x0: 0, x1: 2 + prW }];
+      const [prText, prTextW] = prCell[r] || ['', 0];
+      const prPiece = selectedPr
+        ? [2, highlight(prText + ' '.repeat(Math.max(0, prW - prTextW))), prW]
+        : [2, prText, prTextW];
+      lines.push(row([prPiece, ...prCells.map((pc, j) => {
+        const item = pc.items[r];
+        if (!item) return r === pc.items.length && pc.note ? [xs[j], pc.note, pc.noteW] : [xs[j], '', 0];
+        const label = fit(item.c.label, widths[j] - 2);
+        cells[i].push({ check: item.index, line: at, x: xs[j], band: 0 });
+        hits[at].push({ pr: i, check: item.index, x0: xs[j], x1: xs[j] + widths[j] });
+        if (sel && sel.pr === i && sel.check === item.index) {
+          cursor = at;
+          return [xs[j], highlight(`${sym(item.c.cat)} ${sgr(`1;${T.title}`, label)}`), 2 + width(label)];
+        }
+        const tone = RANK[item.c.cat] >= RANK.cancel ? T.dim : T.title;
+        return [xs[j], `${sym(item.c.cat)} ${sgr(tone, label)}`, 2 + width(label)];
+      })]));
+    }
+    blocks.push([start, lines.length]);
+    if (i < prs.length - 1) lines.push(sgr(T.divider, '─'.repeat(cols)));
+  });
+  return { lines, hits, blocks, cells, cursor, heading };
+}
+
+// ---------------------------------------------------------------- one-shot output
+
+if (!tty) {
+  detectRepo().then(() => fetchPrs(SECTIONS[0])).then(
+    ({ total, prs }) => {
+      const { lines, heading } = buildLines(prs, process.stdout.columns || Number(process.env.COLUMNS) || 160, null);
+      if (prs.length) lines.unshift(heading, '');
+      if (!prs.length) lines.push('No open pull requests.');
+      else if (total > prs.length) lines.push(`Showing ${prs.length} of ${total} pull requests.`);
+      process.stdout.write(lines.join('\n') + '\n');
+    },
+    (err) => {
+      process.stderr.write(`gh checks: ${err.message}\n`);
+      process.exit(1);
+    },
+  );
+  return;
+}
+
+// ---------------------------------------------------------------- dashboard
+
+const state = {
+  section: 0,
+  data: SECTIONS.map(() => null), // { total, prs }
+  attempted: SECTIONS.map(() => 0), // when each section was last fetched
+  loading: new Set(),
+  error: null,
+  pr: 0,
+  check: -1,
+  scroll: 0,
+  follow: true, // keep the cursor on screen; off after the wheel scrolls away
+  cells: [], // per PR, where each check sits: { check, line, x, band }
+  hits: [], // click targets per body line, from buildLines
+  tabHits: [], // [x0, x1) of each section tab in the top bar
+  confirm: null, // { text, action }
+  flash: null, // { text, code, until }
+};
+
+const prs = () => state.data[state.section]?.prs ?? [];
+
+function flash(text, code = T.pass) {
+  state.flash = { text, code, until: Date.now() + 5000 };
+}
+
+function clampSelection() {
+  const list = prs();
+  state.pr = Math.min(Math.max(0, state.pr), Math.max(0, list.length - 1));
+  const n = list.length ? visibleChecks(list[state.pr]).length : 0;
+  state.check = Math.min(state.check, n - 1);
+}
+
+async function refresh(section = state.section) {
+  if (state.loading.has(section)) return;
+  state.loading.add(section);
+  state.attempted[section] = Date.now();
+  render();
+  try {
+    const data = await fetchPrs(SECTIONS[section]);
+    // Keep the cursor on the same PR and check, wherever they moved to.
+    const before = state.section === section ? prs()[state.pr] : null;
+    const label = before && state.check >= 0 ? visibleChecks(before)[state.check]?.label : null;
+    state.data[section] = data;
+    if (before && state.section === section) {
+      const i = data.prs.findIndex((p) => p.number === before.number && p.repo === before.repo);
+      if (i >= 0) {
+        state.pr = i;
+        state.check = label ? visibleChecks(data.prs[i]).findIndex((c) => c.label === label) : -1;
+      }
+    }
+    state.error = null;
+  } catch (err) {
+    state.error = err.message;
+  }
+  state.loading.delete(section);
+  clampSelection();
+  render();
+}
+
+// The first cell by `order`, or undefined.
+const first = (cells, order) => [...cells].sort(order)[0];
+
+// Moves the cursor through the workflow columns as they are drawn: up and
+// down stay in a column, then cross to the band above or below, then to the
+// neighbouring PR; left and right step to the next column at the nearest row.
+function move(dir) {
+  const list = prs();
+  if (!list.length) return;
+  const cells = state.cells[state.pr] || [];
+  const cur = cells.find((c) => c.check === state.check);
+  const topLeft = (a, b) => a.line - b.line || a.x - b.x;
+  const toPr = (i, fromBottom = false) => {
+    if (i < 0 || i >= list.length) return;
+    state.pr = i;
+    const target = fromBottom && first(state.cells[i] || [], (a, b) => b.line - a.line || a.x - b.x);
+    state.check = target ? target.check : -1;
+  };
+  let next;
+  if (!cur) {
+    if (dir === 'up') return toPr(state.pr - 1, true);
+    if (dir === 'down' && !cells.length) return toPr(state.pr + 1);
+    if (dir === 'down' || dir === 'right') next = first(cells, topLeft);
+  } else if (dir === 'down' || dir === 'up') {
+    const sign = dir === 'down' ? 1 : -1;
+    const sameColumn = cells.filter((c) => c.x === cur.x && c.band === cur.band && sign * (c.line - cur.line) > 0);
+    const otherBand = cells.filter((c) => sign * (c.band - cur.band) > 0);
+    next =
+      first(sameColumn, (a, b) => sign * (a.line - b.line)) ||
+      first(otherBand, (a, b) => sign * (a.band - b.band) ||
+        Math.abs(a.x - cur.x) - Math.abs(b.x - cur.x) || sign * (a.line - b.line));
+    if (!next) return dir === 'down' ? toPr(state.pr + 1) : void (state.check = -1);
+  } else {
+    const sign = dir === 'right' ? 1 : -1;
+    const beside = cells.filter((c) => c.band === cur.band && sign * (c.x - cur.x) > 0);
+    next = first(beside, (a, b) => sign * (a.x - b.x) || Math.abs(a.line - cur.line) - Math.abs(b.line - cur.line));
+  }
+  if (next) state.check = next.check;
+}
+
+function selected() {
+  const pr = prs()[state.pr];
+  if (!pr) return {};
+  return { pr, check: state.check >= 0 ? visibleChecks(pr)[state.check] : null };
+}
+
+function openUrl(url) {
+  if (!url) return;
+  const cmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
+  execFile(cmd, [url], (err) => err && flash(`Could not open ${url}`, T.fail));
+}
+
+function askRerun() {
+  const { pr, check } = selected();
+  if (!pr) return;
+  const targets = (check ? [check] : pr.checks).filter((c) => c.cat === 'fail' || c.cat === 'cancel');
+  const runIds = [...new Set(targets.map((c) => c.runId).filter(Boolean))];
+  if (!runIds.length) {
+    flash(check ? 'This check has nothing to re-run.' : `#${pr.number} has no failed workflow jobs.`, T.run);
+    return;
+  }
+  const what = check ? `"${check.label}"` : `#${pr.number}`;
+  state.confirm = {
+    text: `Re-run failed jobs for ${what} (${runIds.length} workflow run${runIds.length > 1 ? 's' : ''})? y/n`,
+    action: async () => {
+      flash(`Re-running failed jobs for ${what}…`, T.run);
+      render();
+      try {
+        for (const id of runIds) await gh(['run', 'rerun', String(id), '--failed', '-R', pr.repo]);
+        flash(`Re-run started for ${what}.`);
+        setTimeout(() => refresh(), 3000);
+      } catch (err) {
+        flash(err.message, T.fail);
+      }
+      render();
+    },
+  };
+}
+
+function render() {
+  if (state.confirm?.help) return;
+  const cols = process.stdout.columns || 100;
+  const rows = process.stdout.rows || 30;
+  const bodyH = Math.max(1, rows - 5); // top bar, rule, column headings, rule, footer
+  const list = prs();
+  const data = state.data[state.section];
+
+  const tabs = SECTIONS.map((s, i) =>
+    sgr(i === state.section ? T.tabOn : T.tabOff, ` ${i + 1} ${s.title} `)).join(' ');
+  let status;
+  if (state.loading.has(state.section)) status = sgr(T.run, '⟳ refreshing');
+  else if (state.error) status = sgr(T.fail, fit(`! ${state.error}`, Math.max(10, cols - 60)));
+  else {
+    const left = Math.max(0, Math.ceil((state.attempted[state.section] + opts.interval * 1000 - Date.now()) / 1000));
+    const at = new Date(state.attempted[state.section]).toLocaleTimeString(undefined, { hour12: false });
+    status = sgr(T.dim, `updated ${at} · next ${left}s`);
+  }
+  const scope = sgr(T.repo, opts.repo || 'all repos');
+  const header = `${sgr(T.brand, ' gh checks')}  ${tabs}   ${scope}   ${status}`;
+  let x = width(' gh checks  ');
+  state.tabHits = SECTIONS.map((s) => {
+    const range = [x, x + width(s.title) + 4];
+    x = range[1] + 1;
+    return range;
+  });
+
+  let body;
+  let heading = '';
+  state.hits = [];
+  if (!data) body = [sgr(T.dim, state.error ? '' : ' Loading…')];
+  else if (!list.length) body = [sgr(T.dim, ' No open pull requests.')];
+  else {
+    const built = buildLines(list, cols, { pr: state.pr, check: state.check });
+    state.cells = built.cells;
+    heading = built.heading;
+    state.hits = built.hits;
+    body = built.lines;
+    if (data.total > list.length) body.push(sgr(T.dim, `Showing ${list.length} of ${data.total} pull requests.`));
+    // Keep the cursor on screen, and show a whole PR when its header is selected.
+    const [start, end] = built.blocks[state.pr];
+    if (state.follow) {
+      if (built.cursor < state.scroll) state.scroll = built.cursor;
+      if (built.cursor >= state.scroll + bodyH) state.scroll = built.cursor - bodyH + 1;
+      if (state.check < 0 && end - start <= bodyH && end > state.scroll + bodyH) state.scroll = end - bodyH;
+    }
+    state.scroll = Math.max(0, Math.min(state.scroll, body.length - bodyH));
+  }
+  const visible = body.slice(state.scroll, state.scroll + bodyH);
+  while (visible.length < bodyH) visible.push('');
+
+  let footer;
+  if (state.confirm) footer = sgr(T.confirm, ` ${state.confirm.text}`);
+  else if (state.flash && state.flash.until > Date.now()) footer = sgr(state.flash.code, ` ${state.flash.text}`);
+  else {
+    // As many "key action" pairs as fit, keys bright and actions dim.
+    const keys = [['↑↓←→', 'move'], ['tab', 'next PR'], ['o', selected().check ? (selected().check.runId ? 'open job log' : 'open check') : 'open PR'], ['R', 're-run failed'], ['r', 'refresh'],
+      ['p', `${hidePassed ? 'show' : 'hide'} passed`], ['1-3', 'section'], ['?', 'help'], ['q', 'quit']];
+    let used = 1;
+    footer = ' ';
+    for (const [k, action] of keys) {
+      const w = width(k) + 1 + width(action) + 2;
+      if (used + w > cols) break;
+      footer += `${sgr(T.key, k)} ${sgr(T.dim, action)}  `;
+      used += w;
+    }
+  }
+
+  const frame = [header, sgr(T.rule, '─'.repeat(cols)), heading, sgr(T.divider, '─'.repeat(cols)), ...visible, footer];
+  process.stdout.write('\x1b[H' + frame.map((l) => l + '\x1b[K').join('\n'));
+}
+
+function showHelp() {
+  process.stdout.write('\x1b[H\x1b[2J' + HELP.slice(HELP.indexOf('Keys:')).replace(/\n/g, '\r\n') +
+    '\r\n  Press any key to return.');
+  state.confirm = { text: '', action: null, help: true };
+}
+
+function switchSection(i) {
+  if (i === state.section) return;
+  Object.assign(state, { section: i, pr: 0, check: -1, scroll: 0, follow: true, error: null });
+  if (!state.data[i] || Date.now() - state.attempted[i] >= opts.interval * 1000) refresh(i);
+}
+
+function onKey(key) {
+  if (key === 'C-c') return quit();
+  if (state.confirm) {
+    const { action } = state.confirm;
+    state.confirm = null;
+    if (action && key === 'y') action();
+    return render();
+  }
+  const list = prs();
+  state.follow = true;
+  switch (key) {
+    case 'q': return quit();
+    case 'up': case 'k': move('up'); break;
+    case 'down': case 'j': move('down'); break;
+    case 'left': case 'h': move('left'); break;
+    case 'right': case 'l': move('right'); break;
+    case 'tab': if (state.pr < list.length - 1) { state.pr++; state.check = -1; } break;
+    case 'S-tab': if (state.pr > 0) { state.pr--; state.check = -1; } break;
+    case 'g': state.pr = 0; state.check = -1; state.scroll = 0; break;
+    case 'G': state.pr = Math.max(0, list.length - 1); state.check = -1; break;
+    case 'return': case 'o': {
+      const { pr, check } = selected();
+      openUrl(check ? check.url : pr?.url);
+      break;
+    }
+    case 'r': refresh(); break;
+    case 'R': askRerun(); break;
+    case 'p': {
+      const { check } = selected();
+      hidePassed = !hidePassed;
+      state.check = check && list[state.pr] ? visibleChecks(list[state.pr]).indexOf(check) : -1;
+      break;
+    }
+    case '1': case '2': case '3': switchSection(Number(key) - 1); break;
+    case '?': return showHelp();
+  }
+  render();
+}
+
+// x and y are 1-based screen positions, as the terminal reports them.
+function onMouse(button, x, y) {
+  if (state.confirm) return onKey('');
+  if (button === 64 || button === 65) {
+    state.scroll += button === 64 ? -3 : 3; // render clamps it
+    state.follow = false;
+    return render();
+  }
+  if (button !== 0) return;
+  if (y === 1) {
+    const tab = state.tabHits.findIndex(([x0, x1]) => x - 1 >= x0 && x - 1 < x1);
+    if (tab >= 0) switchSection(tab);
+    return render();
+  }
+  const hit = state.hits[y - 5 + state.scroll]?.find((h) => x - 1 >= h.x0 && x - 1 < h.x1);
+  if (!hit) return;
+  if (hit.pr === state.pr && hit.check === state.check) return onKey('o');
+  Object.assign(state, { pr: hit.pr, check: hit.check, follow: true });
+  render();
+}
+
+const KEYS = {
+  '\x1b[A': 'up', '\x1b[B': 'down', '\x1b[C': 'right', '\x1b[D': 'left',
+  '\x1bOA': 'up', '\x1bOB': 'down', '\x1bOC': 'right', '\x1bOD': 'left',
+  '\x1b[Z': 'S-tab', '\t': 'tab', '\r': 'return', '\n': 'return', '\x03': 'C-c',
+};
+
+// Splits raw input into mouse reports (SGR mode), named keys and characters.
+function onInput(buf) {
+  let s = buf.toString('utf8');
+  while (s) {
+    const mouse = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])/.exec(s);
+    const seq = !mouse && Object.keys(KEYS).find((k) => s.startsWith(k));
+    let used;
+    if (mouse) {
+      if (mouse[4] === 'M') onMouse(Number(mouse[1]), Number(mouse[2]), Number(mouse[3]));
+      used = mouse[0].length;
+    } else if (seq) {
+      onKey(KEYS[seq]);
+      used = seq.length;
+    } else if (s[0] === '\x1b') {
+      used = /^\x1b(?:\[[0-9;?<]*[~A-Za-z]|O.)?/.exec(s)[0].length; // other sequences: ignore
+    } else {
+      const ch = [...s][0];
+      onKey(ch);
+      used = ch.length;
+    }
+    s = s.slice(used);
+  }
+}
+
+const MOUSE_ON = opts.mouse ? '\x1b[?1000h\x1b[?1006h' : '';
+const RESTORE = (opts.mouse ? '\x1b[?1000l\x1b[?1006l' : '') + '\x1b[?7h\x1b[?25h\x1b[?1049l';
+
+function quit() {
+  process.stdout.write(RESTORE);
+  process.exit(0);
+}
+
+process.on('exit', () => process.stdout.write(RESTORE));
+process.on('SIGTERM', quit);
+
+// Alternate screen, hidden cursor, no line wrap, mouse reporting.
+process.stdout.write('\x1b[?1049h\x1b[?25l\x1b[?7l' + MOUSE_ON);
+process.stdin.setRawMode(true);
+process.stdin.on('data', onInput);
+process.stdout.on('resize', render);
+
+render();
+detectRepo().then(() => {
+  // Ticks every second for the countdown, and refreshes the open section when due.
+  setInterval(() => {
+    if (Date.now() - state.attempted[state.section] >= opts.interval * 1000) refresh();
+    else if (!state.confirm?.help) render();
+  }, 1000);
+  refresh();
+});
