@@ -9,6 +9,8 @@ out as a table instead: one row per pull request, one column per workflow, so
 you can see at a glance what is failing, what is running and what is queued.
 A re-run replaces the earlier attempt, so a running re-run shows as running.
 
+![gh checks moving between checks, showing passed checks, re-running failed jobs and switching sections](demo.gif)
+
 ## Install
 
 Requires `gh` (logged in with `gh auth login`) and Node.js 18 or later.
@@ -70,3 +72,10 @@ open it, scroll with the wheel and click a tab to switch sections. Hold Option
 | ○ (grey) | Skipped |
 
 Checks posted by apps rather than by a workflow appear under **Other checks**.
+
+## Demo
+
+`gh checks --demo` runs the dashboard on the made-up pull requests in
+`demo.json` instead of your own. The GIF above is recorded from it with
+[VHS](https://github.com/charmbracelet/vhs): run `vhs demo.tape` in this folder
+to record it again after a change.

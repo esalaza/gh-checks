@@ -43,7 +43,7 @@ Mouse:
 Symbols: ✗ failed  ● running  ○ queued (yellow)  ⊘ cancelled  ✓ passed  ○ skipped (grey)
 `;
 
-const opts = { repo: '', all: false, interval: 30, hidePassed: true, mouse: true, theme: '' };
+const opts = { repo: '', all: false, interval: 30, hidePassed: true, mouse: true, theme: '', demo: false };
 const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
@@ -53,6 +53,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '--hide-passed') opts.hidePassed = true;
   else if (a === '--no-mouse') opts.mouse = false;
   else if (a === '--all') opts.all = true;
+  else if (a === '--demo') opts.demo = true; // made-up data from demo.json, for screenshots
   else if (a === '--light' || a === '--dark') opts.theme = a.slice(2);
   else if (a === '-h' || a === '--help') {
     process.stdout.write(HELP);
@@ -145,6 +146,7 @@ function toPr(node) {
 
 // Without -R or --all, scope to the current folder's repo, as gh itself would.
 async function detectRepo() {
+  if (opts.demo) opts.repo = demoData().repo;
   if (opts.repo || opts.all) return;
   try {
     opts.repo = (await gh(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'])).trim();
@@ -153,7 +155,35 @@ async function detectRepo() {
   }
 }
 
+// --demo reads demo.json, which spells checks as [workflow, name, status]
+// (workflow "" for app checks) and turns them into the API's shape.
+let demo;
+function demoData() {
+  demo ??= JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname, 'demo.json'), 'utf8'));
+  return demo;
+}
+
+function demoNode(pr, repo) {
+  const run = { pass: ['COMPLETED', 'SUCCESS'], fail: ['COMPLETED', 'FAILURE'], cancel: ['COMPLETED', 'CANCELLED'],
+                skip: ['COMPLETED', 'SKIPPED'], run: ['IN_PROGRESS', null], queue: ['QUEUED', null] };
+  const app = { pass: 'SUCCESS', fail: 'FAILURE', run: 'PENDING', queue: 'EXPECTED' };
+  const url = `https://github.com/${repo}/pull/${pr.number}`;
+  const runIds = [...new Set(pr.checks.map(([wf]) => wf))]; // one run per workflow, as on GitHub
+  const contexts = pr.checks.map(([wf, name, status]) => wf
+    ? { __typename: 'CheckRun', name, status: run[status][0], conclusion: run[status][1], detailsUrl: `${url}/checks`,
+        startedAt: '2026-01-01T00:00:00Z', checkSuite: { workflowRun: { databaseId: runIds.indexOf(wf) + 1, workflow: { name: wf } } } }
+    : { __typename: 'StatusContext', context: name, state: app[status], targetUrl: url });
+  return { number: pr.number, title: pr.title, url, isDraft: !!pr.draft,
+           repository: { name: repo.split('/')[1], nameWithOwner: repo },
+           commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: contexts } } } }] } };
+}
+
 async function fetchPrs(section) {
+  if (opts.demo) {
+    const { repo, sections } = demoData();
+    const prs = sections[SECTIONS.indexOf(section)].map((pr) => toPr(demoNode(pr, repo)));
+    return { total: prs.length, prs };
+  }
   const q = `is:pr is:open archived:false sort:updated-desc ${section.qualifiers}` +
     (opts.repo ? ` repo:${opts.repo}` : '');
   const { data } = JSON.parse(await gh(['api', 'graphql', '-f', `q=${q}`, '-f', `query=${QUERY}`]));
@@ -508,7 +538,7 @@ function askRerun() {
       flash(`Re-running failed jobs for ${what}…`, T.run);
       render();
       try {
-        for (const id of runIds) await gh(['run', 'rerun', String(id), '--failed', '-R', pr.repo]);
+        if (!opts.demo) for (const id of runIds) await gh(['run', 'rerun', String(id), '--failed', '-R', pr.repo]);
         flash(`Re-run started for ${what}.`);
         setTimeout(() => refresh(), 3000);
       } catch (err) {
