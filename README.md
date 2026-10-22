@@ -49,6 +49,8 @@ anywhere else, it lists them from every repository.
 | `tab`, `shift-tab` | Next / previous pull request |
 | `g`, `G` | First / last pull request |
 | `o`, `enter` | Open the selected pull request or check in the browser |
+| `y` | Copy the selected pull request's number (`#123`) to the clipboard |
+| `Y` | Copy the selected pull request's URL |
 | `R` | Re-run failed jobs (the selected check, or the whole pull request) |
 | `r` | Refresh now |
 | `p` | Show / hide passed and skipped checks |
@@ -57,7 +59,8 @@ anywhere else, it lists them from every repository.
 | `q`, `ctrl-c` | Quit |
 
 With the mouse: click a pull request or check to select it, click it again to
-open it, scroll with the wheel and click a tab to switch sections. Hold Option
+open it, right-click a pull request to copy its number, scroll with the wheel
+and click a tab to switch sections. Hold Option
 (macOS terminals) or Shift (most others) to select text.
 
 ### Symbols

@@ -28,6 +28,8 @@ Keys:
   tab, shift-tab        next / previous PR
   g, G                  first / last PR
   o, enter              open the selected PR or check log in the browser
+  y                     copy the selected PR's number (#123) to the clipboard
+  Y                     copy the selected PR's URL
   R                     re-run failed jobs (selected check, or the whole PR)
   r                     refresh now
   p                     hide / show passed and skipped checks
@@ -38,6 +40,7 @@ Mouse:
   click                 select a PR or check; click it again to open it
   wheel                 scroll
   click a tab           switch section
+  right-click a PR      copy its number
   Hold Option (macOS terminals) or Shift (most others) to select text.
 
 Symbols: ✗ failed  ● running  ○ queued (yellow)  ⊘ cancelled  ✓ passed  ○ skipped (grey)
@@ -516,6 +519,31 @@ function selected() {
   return { pr, check: state.check >= 0 ? visibleChecks(pr)[state.check] : null };
 }
 
+// Copies with the system tool where there is one, else asks the terminal to
+// (OSC 52, which iTerm2, Ghostty, kitty and VS Code understand).
+function copy(text) {
+  const tools = process.platform === 'darwin'
+    ? [['pbcopy', []]]
+    : [['wl-copy', []], ['xclip', ['-selection', 'clipboard']], ['xsel', ['--clipboard', '--input']]];
+  const attempt = ([tool, ...rest]) => {
+    if (!tool) {
+      process.stdout.write(`\x1b]52;c;${Buffer.from(text).toString('base64')}\x07`);
+      return;
+    }
+    const child = require('node:child_process').spawn(tool[0], tool[1], { stdio: ['pipe', 'ignore', 'ignore'] });
+    child.on('error', () => attempt(rest));
+    child.stdin.on('error', () => {});
+    child.stdin.end(text);
+  };
+  attempt(tools);
+  flash(`Copied ${text}`);
+}
+
+function copyPr(what) {
+  const { pr } = selected();
+  if (pr) copy(what === 'url' ? pr.url : `#${pr.number}`);
+}
+
 function openUrl(url) {
   if (!url) return;
   const cmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
@@ -605,7 +633,7 @@ function render() {
   else if (state.flash && state.flash.until > Date.now()) footer = sgr(state.flash.code, ` ${state.flash.text}`);
   else {
     // As many "key action" pairs as fit, keys bright and actions dim.
-    const keys = [['↑↓←→', 'move'], ['tab', 'next PR'], ['o', selected().check ? (selected().check.runId ? 'open job log' : 'open check') : 'open PR'], ['R', 're-run failed'], ['r', 'refresh'],
+    const keys = [['↑↓←→', 'move'], ['tab', 'next PR'], ['o', selected().check ? (selected().check.runId ? 'open job log' : 'open check') : 'open PR'], ['y', 'copy #'], ['R', 're-run failed'], ['r', 'refresh'],
       ['p', `${hidePassed ? 'show' : 'hide'} passed`], ['1-3', 'section'], ['?', 'help'], ['q', 'quit']];
     let used = 1;
     footer = ' ';
@@ -660,6 +688,8 @@ function onKey(key) {
     }
     case 'r': refresh(); break;
     case 'R': askRerun(); break;
+    case 'y': copyPr('number'); break;
+    case 'Y': copyPr('url'); break;
     case 'p': {
       const { check } = selected();
       hidePassed = !hidePassed;
@@ -678,6 +708,13 @@ function onMouse(button, x, y) {
   if (button === 64 || button === 65) {
     state.scroll += button === 64 ? -3 : 3; // render clamps it
     state.follow = false;
+    return render();
+  }
+  if (button === 2) {
+    const hit = state.hits[y - 5 + state.scroll]?.find((h) => x - 1 >= h.x0 && x - 1 < h.x1);
+    if (!hit) return;
+    Object.assign(state, { pr: hit.pr, check: -1, follow: true });
+    copyPr('number');
     return render();
   }
   if (button !== 0) return;
