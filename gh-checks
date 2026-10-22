@@ -417,7 +417,11 @@ function wrap(text, w, max) {
 // on, and `cells` each PR's check positions, for moving the cursor.
 function buildLines(prs, cols, sel, copied = null) {
   const multi = new Set(prs.map((p) => p.repo)).size > 1;
-  const prW = Math.max(30, Math.min(50, Math.round(cols * 0.28)));
+  // The list layout has room to spare beside its one column of checks, so its
+  // PR column is wider and titles wrap less.
+  const prW = layout === 'list'
+    ? Math.max(36, Math.min(64, Math.round(cols * 0.36)))
+    : Math.max(30, Math.min(50, Math.round(cols * 0.28)));
   const restCols = cols - prW - GAP;
   const names = tableColumns(prs);
   listLabelW = Math.min(40, Math.max(0, ...prs.flatMap((pr) => visibleChecks(pr).map((c) => width(c.label)))));
