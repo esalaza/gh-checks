@@ -29,7 +29,7 @@ rather than as the old failure. Piped output prints the list once.
 
 Keys:
   ↑ ↓ ← →  or k j h l   move between PRs and checks
-  tab, shift-tab        next / previous PR
+  tab, shift-tab        next / previous PR (wrapping round at the ends)
   g, G                  first / last PR
   o, enter              open the selected PR or check log in the browser
   y                     copy the selected PR's number (#123) to the clipboard
@@ -797,8 +797,9 @@ function onKey(key) {
     case 'down': case 'j': move('down'); break;
     case 'left': case 'h': move('left'); break;
     case 'right': case 'l': move('right'); break;
-    case 'tab': if (state.pr < list.length - 1) { state.pr++; state.check = -1; } break;
-    case 'S-tab': if (state.pr > 0) { state.pr--; state.check = -1; } break;
+    // tab and shift-tab wrap round from the last PR to the first, and back.
+    case 'tab': if (list.length) { state.pr = (state.pr + 1) % list.length; state.check = -1; } break;
+    case 'S-tab': if (list.length) { state.pr = (state.pr - 1 + list.length) % list.length; state.check = -1; } break;
     case 'g': state.pr = 0; state.check = -1; state.scroll = 0; break;
     case 'G': state.pr = Math.max(0, list.length - 1); state.check = -1; break;
     case 'return': case 'o': {

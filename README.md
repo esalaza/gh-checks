@@ -48,7 +48,7 @@ anywhere else, it lists them from every repository.
 | Key | Action |
 | --- | --- |
 | `↑ ↓ ← →` or `k j h l` | Move between pull requests and checks |
-| `tab`, `shift-tab` | Next / previous pull request |
+| `tab`, `shift-tab` | Next / previous pull request, wrapping round at the ends |
 | `g`, `G` | First / last pull request |
 | `o`, `enter` | Open the selected pull request or check in the browser |
 | `y` | Copy the selected pull request's number (`#123`) to the clipboard |
