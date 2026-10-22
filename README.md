@@ -40,6 +40,7 @@ anywhere else, it lists them from every repository.
 | `--show-passed` | Start with passed and skipped checks listed (they are counted, not listed, by default) |
 | `--no-mouse` | Leave the mouse to the terminal, for normal text selection |
 | `--light`, `--dark` | Colours for a light or dark background |
+| `--bg COLOUR` | Window background while the dashboard runs, as `#rrggbb`, or `none` to keep the terminal's. Defaults to a neutral dark grey with the dark colours. Needs a terminal that supports it (iTerm2, Ghostty, kitty, VS Code); others keep their own |
 
 ### Keys
 
@@ -59,8 +60,8 @@ anywhere else, it lists them from every repository.
 | `q`, `ctrl-c` | Quit |
 
 With the mouse: click a pull request or check to select it, click it again to
-open it, right-click a pull request to copy its number, scroll with the wheel
-and click a tab to switch sections. Hold Option
+open it, click a pull request's number (or right-click anywhere in its row) to
+copy the number, scroll with the wheel and click a tab to switch sections. Hold Option
 (macOS terminals) or Shift (most others) to select text.
 
 ### Symbols

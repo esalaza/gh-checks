@@ -21,6 +21,9 @@ rather than as the old failure. Piped output prints the list once.
       --no-mouse        leave the mouse to the terminal (normal text selection)
       --light, --dark   colours for a light or dark background (default: dark,
                         or light where the terminal reports a light background)
+      --bg COLOUR       background while the dashboard runs, as #rrggbb, or
+                        "none" to keep the terminal's (default: a neutral dark
+                        grey with the dark colours, none with the light ones)
   -h, --help            show this help
 
 Keys:
@@ -40,13 +43,14 @@ Mouse:
   click                 select a PR or check; click it again to open it
   wheel                 scroll
   click a tab           switch section
+  click a PR's #number  copy it (#123) to the clipboard
   right-click a PR      copy its number
   Hold Option (macOS terminals) or Shift (most others) to select text.
 
 Symbols: ✗ failed  ● running  ○ queued (yellow)  ⊘ cancelled  ✓ passed  ○ skipped (grey)
 `;
 
-const opts = { repo: '', all: false, interval: 30, hidePassed: true, mouse: true, theme: '', demo: false };
+const opts = { repo: '', all: false, interval: 30, hidePassed: true, mouse: true, theme: '', demo: false, bg: '' };
 const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
@@ -56,6 +60,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '--hide-passed') opts.hidePassed = true;
   else if (a === '--no-mouse') opts.mouse = false;
   else if (a === '--all') opts.all = true;
+  else if (a === '--bg') opts.bg = argv[++i] || '';
   else if (a === '--demo') opts.demo = true; // made-up data from demo.json, for screenshots
   else if (a === '--light' || a === '--dark') opts.theme = a.slice(2);
   else if (a === '-h' || a === '--help') {
@@ -214,14 +219,14 @@ const THEMES = {
     pass: '1;38;5;84', skip: '38;5;247',
     number: '1;38;5;68', repo: '38;5;68', prTitle: '1;38;5;231', title: '38;5;255', dim: '38;5;248', rule: '38;5;239', divider: '38;5;238',
     brand: '1;38;5;213', tabOn: '1;38;5;255;48;5;239', tabOff: '38;5;248',
-    selBg: '48;5;237', key: '1;38;5;75', confirm: '1;38;5;221', colHead: '1;38;5;250',
+    selBg: '48;5;237', key: '1;38;5;75', confirm: '1;38;5;221', colHead: '1;38;5;250', bg: '#1c1c21',
   },
   light: {
     fail: '1;38;5;160', run: '1;38;5;166', queue: '38;5;136', cancel: '38;5;243',
     pass: '1;38;5;28', skip: '38;5;246',
     number: '1;38;5;25', repo: '38;5;25', prTitle: '1;38;5;232', title: '38;5;235', dim: '38;5;242', rule: '38;5;250', divider: '38;5;253',
     brand: '1;38;5;127', tabOn: '1;38;5;235;48;5;252', tabOff: '38;5;242',
-    selBg: '48;5;254', key: '1;38;5;25', confirm: '1;38;5;136', colHead: '1;38;5;240',
+    selBg: '48;5;254', key: '1;38;5;25', confirm: '1;38;5;136', colHead: '1;38;5;240', bg: '',
   },
 };
 // COLORFGBG ("15;0") ends with the background colour where the terminal sets it.
@@ -321,9 +326,10 @@ function wrap(text, w, max) {
 // wrapped title, check counts) in the first column, then a column per
 // workflow. The heading row is returned apart, to be drawn once above the
 // list. `sel` is the selected { pr, check } (check -1 = the PR itself), or
-// null when printing. `hits` holds, per line, the ranges a mouse click can
-// land on, and `cells` each PR's check positions, for moving the cursor.
-function buildLines(prs, cols, sel) {
+// null when printing, and `copied` names a PR ("owner/repo#123") whose number
+// was just copied. `hits` holds, per line, the ranges a mouse click can land
+// on, and `cells` each PR's check positions, for moving the cursor.
+function buildLines(prs, cols, sel, copied = null) {
   const multi = new Set(prs.map((p) => p.repo)).size > 1;
   const prW = Math.max(30, Math.min(50, Math.round(cols * 0.28)));
   const restCols = cols - prW - GAP;
@@ -357,12 +363,17 @@ function buildLines(prs, cols, sel) {
     const indent = width(prefix) + 2;
     const titleLines = wrap(pr.title, prW - indent, 3);
     const sum = summary(pr.counts);
+    // Just copied: the "#" turns into a green tick, with "copied" beneath it
+    // where the gutter is wide enough.
+    const justCopied = copied === `${pr.repo}#${pr.number}`;
+    const number = justCopied ? sgr(T.pass, prefix.replace('#', '✓')) : sgr(T.number, prefix);
+    const gutter = (k) => (justCopied && k === 1 && indent >= 7 ? sgr(T.pass, 'copied') + ' '.repeat(indent - 6) : ' '.repeat(indent));
     const prCell = [
       ...titleLines.map((t, k) => [
-        k === 0 ? `${sgr(T.number, prefix)}  ${sgr(T.prTitle, t)}` : ' '.repeat(indent) + sgr(T.prTitle, t),
+        k === 0 ? `${number}  ${sgr(T.prTitle, t)}` : gutter(k) + sgr(T.prTitle, t),
         indent + width(t),
       ]),
-      [' '.repeat(indent) + sum.text + (pr.draft ? `  ${sgr(T.dim, 'draft')}` : ''), indent + sum.w + (pr.draft ? 7 : 0)],
+      [gutter(titleLines.length) + sum.text + (pr.draft ? `  ${sgr(T.dim, 'draft')}` : ''), indent + sum.w + (pr.draft ? 7 : 0)],
     ];
 
     cells[i] = [];
@@ -371,6 +382,7 @@ function buildLines(prs, cols, sel) {
     for (let r = 0; r < height; r++) {
       const at = lines.length;
       hits[at] = [{ pr: i, check: -1, x0: 0, x1: 2 + prW }];
+      if (r === 0) hits[at].unshift({ pr: i, check: -1, x0: 2, x1: 2 + width(prefix), copy: true });
       const [prText, prTextW] = prCell[r] || ['', 0];
       const prPiece = selectedPr
         ? [2, highlight(prText + ' '.repeat(Math.max(0, prW - prTextW))), prW]
@@ -431,6 +443,7 @@ const state = {
   tabHits: [], // [x0, x1) of each section tab in the top bar
   confirm: null, // { text, action }
   flash: null, // { text, code, until }
+  copied: null, // { key: 'owner/repo#123', until }: the number just copied by a click
 };
 
 const prs = () => state.data[state.section]?.prs ?? [];
@@ -610,7 +623,8 @@ function render() {
   if (!data) body = [sgr(T.dim, state.error ? '' : ' Loading…')];
   else if (!list.length) body = [sgr(T.dim, ' No open pull requests.')];
   else {
-    const built = buildLines(list, cols, { pr: state.pr, check: state.check });
+    const built = buildLines(list, cols, { pr: state.pr, check: state.check },
+      state.copied?.until > Date.now() ? state.copied.key : null);
     state.cells = built.cells;
     heading = built.heading;
     state.hits = built.hits;
@@ -633,7 +647,7 @@ function render() {
   else if (state.flash && state.flash.until > Date.now()) footer = sgr(state.flash.code, ` ${state.flash.text}`);
   else {
     // As many "key action" pairs as fit, keys bright and actions dim.
-    const keys = [['↑↓←→', 'move'], ['tab', 'next PR'], ['o', selected().check ? (selected().check.runId ? 'open job log' : 'open check') : 'open PR'], ['y', 'copy #'], ['R', 're-run failed'], ['r', 'refresh'],
+    const keys = [['↑↓←→', 'move'], ['tab', 'next PR'], ['o', selected().check ? (selected().check.runId ? 'open job log' : 'open check') : 'open PR'], ['click #', 'copy'], ['R', 're-run failed'], ['r', 'refresh'],
       ['p', `${hidePassed ? 'show' : 'hide'} passed`], ['1-3', 'section'], ['?', 'help'], ['q', 'quit']];
     let used = 1;
     footer = ' ';
@@ -725,6 +739,14 @@ function onMouse(button, x, y) {
   }
   const hit = state.hits[y - 5 + state.scroll]?.find((h) => x - 1 >= h.x0 && x - 1 < h.x1);
   if (!hit) return;
+  if (hit.copy) {
+    const pr = prs()[hit.pr];
+    Object.assign(state, { pr: hit.pr, check: -1, follow: true });
+    copy(`#${pr.number}`);
+    state.copied = { key: `${pr.repo}#${pr.number}`, until: Date.now() + 1200 };
+    setTimeout(render, 1300);
+    return render();
+  }
   if (hit.pr === state.pr && hit.check === state.check) return onKey('o');
   Object.assign(state, { pr: hit.pr, check: hit.check, follow: true });
   render();
@@ -761,7 +783,16 @@ function onInput(buf) {
 }
 
 const MOUSE_ON = opts.mouse ? '\x1b[?1000h\x1b[?1006h' : '';
-const RESTORE = (opts.mouse ? '\x1b[?1000l\x1b[?1006l' : '') + '\x1b[?7h\x1b[?25h\x1b[?1049l';
+// The window background while the dashboard runs (OSC 11), put back to the
+// terminal's own on exit (OSC 111). Terminals without OSC 11 ignore both.
+const bg = opts.bg === 'none' ? '' : (opts.bg || T.bg).replace(/^(?=[0-9a-f]{6}$)/i, '#');
+if (bg && !/^#[0-9a-f]{6}$/i.test(bg)) {
+  process.stderr.write(`gh checks: --bg wants #rrggbb or none, not "${opts.bg}"\n`);
+  process.exit(1);
+}
+const BG_ON = bg ? `\x1b]11;${bg}\x07` : '';
+const RESTORE = (opts.mouse ? '\x1b[?1000l\x1b[?1006l' : '') + (bg ? '\x1b]111\x07' : '') +
+  '\x1b[?7h\x1b[?25h\x1b[?1049l';
 
 function quit() {
   process.stdout.write(RESTORE);
@@ -772,7 +803,7 @@ process.on('exit', () => process.stdout.write(RESTORE));
 process.on('SIGTERM', quit);
 
 // Alternate screen, hidden cursor, no line wrap, mouse reporting.
-process.stdout.write('\x1b[?1049h\x1b[?25l\x1b[?7l' + MOUSE_ON);
+process.stdout.write('\x1b[?1049h\x1b[?25l\x1b[?7l' + MOUSE_ON + BG_ON);
 process.stdin.setRawMode(true);
 process.stdin.on('data', onInput);
 process.stdout.on('resize', render);
