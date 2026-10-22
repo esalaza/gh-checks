@@ -85,7 +85,7 @@ query($q: String!) {
     issueCount
     nodes {
       ... on PullRequest {
-        number title url isDraft
+        number title url isDraft baseRefName
         repository { name nameWithOwner }
         commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
           __typename
@@ -161,11 +161,64 @@ function toPr(node) {
     c.tag = uses[`${c.wf}\u0000${c.name}`] > 1 && c.event ? ` (${EVENTS[c.event] ?? c.event})` : '';
     c.label = c.name + c.tag;
   }
-  checks.sort((a, b) => RANK[a.cat] - RANK[b.cat] || a.label.localeCompare(b.label));
-  const counts = {};
-  for (const c of checks) counts[c.cat] = (counts[c.cat] || 0) + 1;
-  return { number: node.number, title: node.title, url: node.url, draft: node.isDraft,
-           repo: node.repository.nameWithOwner, repoName: node.repository.name, checks, counts };
+  return settle({ number: node.number, title: node.title, url: node.url, draft: node.isDraft, base: node.baseRefName,
+                  repo: node.repository.nameWithOwner, repoName: node.repository.name, checks });
+}
+
+// Orders a PR's checks (failed first) and counts them by status.
+function settle(pr) {
+  pr.checks.sort((a, b) => RANK[a.cat] - RANK[b.cat] || a.label.localeCompare(b.label));
+  pr.counts = {};
+  for (const c of pr.checks) pr.counts[c.cat] = (pr.counts[c.cat] || 0) + 1;
+  return pr;
+}
+
+// The checks a branch requires before merging, from its rulesets and any
+// classic branch protection, kept for ten minutes as they rarely change.
+const requiredCache = new Map();
+async function requiredChecks(repo, branch) {
+  const key = `${repo}:${branch}`;
+  const hit = requiredCache.get(key);
+  if (hit && Date.now() - hit.at < 600000) return hit.names;
+  const names = new Set();
+  const ref = encodeURIComponent(branch);
+  try {
+    for (const rule of JSON.parse(await gh(['api', `repos/${repo}/rules/branches/${ref}`]))) {
+      if (rule.type === 'required_status_checks') {
+        for (const c of rule.parameters?.required_status_checks ?? []) names.add(c.context);
+      }
+    }
+  } catch {
+    // No rules, or no access to them.
+  }
+  try {
+    const classic = JSON.parse(await gh(['api', `repos/${repo}/branches/${ref}/protection/required_status_checks`]));
+    for (const c of classic.contexts ?? []) names.add(c);
+  } catch {
+    // Not protected.
+  }
+  requiredCache.set(key, { at: Date.now(), names });
+  return names;
+}
+
+// GitHub lists a required check as "Expected" until its job reports, which can
+// be a while when the workflow is waiting for a runner. Shows those as queued,
+// in the workflow column the check appears under on other PRs, if any.
+async function addExpectedChecks(prs) {
+  const workflowOf = new Map();
+  for (const pr of prs) for (const c of pr.checks) if (c.wf) workflowOf.set(c.name, c.wf);
+  await Promise.all(prs.map(async (pr) => {
+    if (!pr.base) return;
+    const reported = new Set(pr.checks.map((c) => c.name));
+    const missing = [...await requiredChecks(pr.repo, pr.base)].filter((name) => !reported.has(name));
+    if (!missing.length) return;
+    for (const name of missing) {
+      pr.checks.push({ wf: workflowOf.get(name) ?? '', event: '', tag: ' (expected)', runId: null, name,
+                       label: `${name} (expected)`, url: `${pr.url}/checks`, t: '', cat: 'queue' });
+    }
+    settle(pr);
+  }));
+  return prs;
 }
 
 // Without -R or --all, scope to the current folder's repo, as gh itself would.
@@ -211,7 +264,8 @@ async function fetchPrs(section) {
   const q = `is:pr is:open archived:false sort:updated-desc ${section.qualifiers}` +
     (opts.repo ? ` repo:${opts.repo}` : '');
   const { data } = JSON.parse(await gh(['api', 'graphql', '-f', `q=${q}`, '-f', `query=${QUERY}`]));
-  return { total: data.search.issueCount, prs: data.search.nodes.filter((n) => n.number).map(toPr) };
+  const prs = data.search.nodes.filter((n) => n.number).map(toPr);
+  return { total: data.search.issueCount, prs: await addExpectedChecks(prs) };
 }
 
 // ---------------------------------------------------------------- drawing

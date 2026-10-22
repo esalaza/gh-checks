@@ -79,6 +79,12 @@ copy the number, scroll with the wheel and click a tab to switch sections. Hold 
 
 Checks posted by apps rather than by a workflow appear under **Other checks**.
 
+A check marked **(expected)** is one the target branch requires that hasn't
+reported yet, usually because its workflow is waiting for a runner. GitHub
+shows these as "Expected — Waiting for status to be reported". When a job runs
+for more than one event, its name carries the event, such as **(push)** or
+**(PR)**.
+
 ## Demo
 
 `gh checks --demo` runs the dashboard on the made-up pull requests in
