@@ -33,6 +33,7 @@ Keys:
   o, enter              open the selected PR or check log in the browser
   y                     copy the selected PR's number (#123) to the clipboard
   Y                     copy the selected PR's URL
+  b                     try the next background colour (keep one with --bg)
   R                     re-run failed jobs (selected check, or the whole PR)
   r                     refresh now
   p                     hide / show passed and skipped checks
@@ -704,6 +705,7 @@ function onKey(key) {
     case 'R': askRerun(); break;
     case 'y': copyPr('number'); break;
     case 'Y': copyPr('url'); break;
+    case 'b': nextBackground(); break;
     case 'p': {
       const { check } = selected();
       hidePassed = !hidePassed;
@@ -791,7 +793,22 @@ if (bg && !/^#[0-9a-f]{6}$/i.test(bg)) {
   process.exit(1);
 }
 const BG_ON = bg ? `\x1b]11;${bg}\x07` : '';
-const RESTORE = (opts.mouse ? '\x1b[?1000l\x1b[?1006l' : '') + (bg ? '\x1b]111\x07' : '') +
+
+// Backgrounds to try with b, darkest first, ending with the terminal's own.
+const BACKGROUNDS = [
+  ['#1c1c21', 'charcoal'], ['#212126', 'graphite'], ['#25262b', 'slate'], ['#282c34', 'one dark'],
+  ['#2b2d31', 'ash'], ['#2e3440', 'nord'], ['#303236', 'pewter'], ['#34363c', 'smoke'], ['', 'your terminal\'s'],
+];
+let bgIndex = Math.max(0, BACKGROUNDS.findIndex(([hex]) => hex === bg));
+
+function nextBackground() {
+  bgIndex = (bgIndex + 1) % BACKGROUNDS.length;
+  const [hex, name] = BACKGROUNDS[bgIndex];
+  process.stdout.write(hex ? `\x1b]11;${hex}\x07` : '\x1b]111\x07');
+  flash(`Background ${bgIndex + 1}/${BACKGROUNDS.length}: ${name}` +
+    (hex ? ` ${hex}. To keep it: gh checks --bg '${hex}'` : `. To keep it: gh checks --bg none`), T.key);
+}
+const RESTORE = (opts.mouse ? '\x1b[?1000l\x1b[?1006l' : '') + '\x1b]111\x07' +
   '\x1b[?7h\x1b[?25h\x1b[?1049l';
 
 function quit() {

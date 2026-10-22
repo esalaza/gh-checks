@@ -55,6 +55,7 @@ anywhere else, it lists them from every repository.
 | `R` | Re-run failed jobs (the selected check, or the whole pull request) |
 | `r` | Refresh now |
 | `p` | Show / hide passed and skipped checks |
+| `b` | Try the next background colour (the footer shows the `--bg` to keep it) |
 | `1` `2` `3` | Assigned to me / Authored by me / Review requested |
 | `?` | Help |
 | `q`, `ctrl-c` | Quit |
