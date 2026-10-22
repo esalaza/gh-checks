@@ -735,6 +735,15 @@ function render() {
       if (state.check < 0 && end - start <= bodyH && end > state.scroll + bodyH) state.scroll = end - bodyH;
     }
     state.scroll = Math.max(0, Math.min(state.scroll, body.length - bodyH));
+    // Say how many PRs start above or below the screen, at the end of the
+    // column headings, so none are missed off the bottom.
+    const above = built.blocks.filter(([first]) => first < state.scroll).length;
+    const below = built.blocks.filter(([first]) => first >= state.scroll + bodyH).length;
+    const more = [above && `↑ ${above} above`, below && `↓ ${below} below`].filter(Boolean).join('  ');
+    if (more) {
+      const used = width(heading.replace(/\x1b\[[0-9;]*m/g, ''));
+      heading += ' '.repeat(Math.max(2, cols - used - width(more) - 1)) + sgr(T.key, more);
+    }
   }
   const visible = body.slice(state.scroll, state.scroll + bodyH);
   while (visible.length < bodyH) visible.push('');
