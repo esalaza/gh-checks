@@ -19,11 +19,10 @@ rather than as the old failure. Piped output prints the list once.
       --show-passed     start with passed and skipped checks shown (hidden by
                         default; p toggles them)
       --no-mouse        leave the mouse to the terminal (normal text selection)
-      --light, --dark   colours for a light or dark background (default: dark,
-                        or light where the terminal reports a light background)
+      --light, --dark   light colours on solarized cream (the default), or dark
+                        colours on charcoal; t switches between them as it runs
       --bg COLOUR       background while the dashboard runs, as #rrggbb, or
-                        "none" to keep the terminal's (default: a neutral dark
-                        grey with the dark colours, none with the light ones)
+                        "none" to keep the terminal's; b tries others as it runs
   -h, --help            show this help
 
 Keys:
@@ -228,12 +227,14 @@ const THEMES = {
     pass: '1;38;5;28', skip: '1;38;5;243',
     number: '1;38;5;25', repo: '38;5;25', prTitle: '1;38;5;232', title: '38;5;235', dim: '38;5;242', rule: '38;5;250', divider: '38;5;253',
     brand: '1;38;5;127', tabOn: '1;38;5;235;48;5;252', tabOff: '38;5;242',
-    selBg: '48;5;254', key: '1;38;5;25', confirm: '1;38;5;136', colHead: '1;38;5;240', bg: '#f7f7f5',
+    selBg: '48;5;254', key: '1;38;5;25', confirm: '1;38;5;136', colHead: '1;38;5;240', bg: '#fdf6e3',
   },
 };
 // COLORFGBG ("15;0") ends with the background colour where the terminal sets it.
 const bgColour = Number((process.env.COLORFGBG || '').split(';').pop());
-let themeName = opts.theme || (bgColour === 7 || bgColour === 15 ? 'light' : 'dark');
+// The dashboard defaults to light colours on its own cream background. Piped
+// output can't set a background, so it follows the terminal's where known.
+let themeName = opts.theme || (tty || bgColour === 7 || bgColour === 15 ? 'light' : 'dark');
 let T = THEMES[themeName]; // swapped live by the t key
 
 const SYM = { fail: '✗', run: '●', queue: '○', cancel: '⊘', pass: '✓', skip: '○' };
@@ -805,8 +806,8 @@ const BACKGROUNDS = {
     ['#2b2d31', 'ash'], ['#2e3440', 'nord'], ['#303236', 'pewter'], ['#34363c', 'smoke'], ['', 'your terminal\'s'],
   ],
   light: [
-    ['#f7f7f5', 'paper'], ['#ffffff', 'white'], ['#f2f2ef', 'stone'], ['#eff1f5', 'latte'],
-    ['#f4f1ea', 'linen'], ['#fdf6e3', 'solarized'], ['#e9ebee', 'mist'], ['', 'your terminal\'s'],
+    ['#fdf6e3', 'solarized'], ['#f7f7f5', 'paper'], ['#ffffff', 'white'], ['#f2f2ef', 'stone'],
+    ['#eff1f5', 'latte'], ['#f4f1ea', 'linen'], ['#e9ebee', 'mist'], ['', 'your terminal\'s'],
   ],
 };
 let bgIndex = Math.max(0, BACKGROUNDS[themeName].findIndex(([hex]) => hex === bg));

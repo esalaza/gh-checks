@@ -43,6 +43,14 @@ Sleep 2s
 Type "y"
 Sleep 2s
 
+# Light and dark colours, and the next background.
+Type "t"
+Sleep 2s
+Type "b"
+Sleep 2s
+Type "t"
+Sleep 1.5s
+
 # The other sections.
 Type "2"
 Sleep 2s

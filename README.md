@@ -39,8 +39,8 @@ anywhere else, it lists them from every repository.
 | `-i`, `--interval SECS` | Refresh interval (default 30, minimum 5) |
 | `--show-passed` | Start with passed and skipped checks listed (they are counted, not listed, by default) |
 | `--no-mouse` | Leave the mouse to the terminal, for normal text selection |
-| `--light`, `--dark` | Colours for a light or dark background |
-| `--bg COLOUR` | Window background while the dashboard runs, as `#rrggbb`, or `none` to keep the terminal's. Defaults to a neutral dark grey with the dark colours and a soft off-white with the light ones. Needs a terminal that supports it (iTerm2, Ghostty, kitty, VS Code); others keep their own |
+| `--light`, `--dark` | Light colours on a solarized cream background (the default), or dark colours on charcoal |
+| `--bg COLOUR` | Window background while the dashboard runs, as `#rrggbb`, or `none` to keep the terminal's. Defaults to solarized cream `#fdf6e3` with the light colours and charcoal `#1c1c21` with the dark ones. Needs a terminal that supports it (iTerm2, Ghostty, kitty, VS Code); others keep their own |
 
 ### Keys
 
@@ -55,8 +55,8 @@ anywhere else, it lists them from every repository.
 | `R` | Re-run failed jobs (the selected check, or the whole pull request) |
 | `r` | Refresh now |
 | `p` | Show / hide passed and skipped checks |
+| `t` | Switch between light and dark colours |
 | `b` | Try the next background colour (the footer shows the `--bg` to keep it) |
-| `t` | Switch between dark and light colours |
 | `1` `2` `3` | Assigned to me / Authored by me / Review requested |
 | `?` | Help |
 | `q`, `ctrl-c` | Quit |
