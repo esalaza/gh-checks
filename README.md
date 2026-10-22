@@ -5,8 +5,8 @@ requests in a live terminal dashboard, with every CI check expanded.
 
 GitHub's pull request list rolls all of a PR's checks into one icon, and keeps
 showing a red ✗ while a failed job is being re-run. `gh checks` lays the checks
-out as a table instead: one row per pull request, one column per workflow, so
-you can see at a glance what is failing, what is running and what is queued.
+out beside each pull request instead, as one list ordered by status or as a
+table with a column per workflow, so you can see at a glance what is failing, what is running and what is queued.
 A re-run replaces the earlier attempt, so a running re-run shows as running.
 
 ![gh checks moving between checks, showing passed checks, re-running failed jobs and switching sections](demo.gif)
@@ -38,6 +38,7 @@ anywhere else, it lists them from every repository.
 | `--all` | Pull requests from every repository |
 | `-i`, `--interval SECS` | Refresh interval (default 30, minimum 5) |
 | `--show-passed` | Start with passed and skipped checks listed (they are counted, not listed, by default) |
+| `--list`, `--table` | Each PR's checks as one list ordered by status, with their workflow beside them (the default), or as a table with a column per workflow |
 | `--no-mouse` | Leave the mouse to the terminal, for normal text selection |
 | `--light`, `--dark` | Light colours on a solarized cream background (the default), or dark colours on charcoal |
 | `--bg COLOUR` | Window background while the dashboard runs, as `#rrggbb`, or `none` to keep the terminal's. Defaults to solarized cream `#fdf6e3` with the light colours and charcoal `#1c1c21` with the dark ones. Needs a terminal that supports it (iTerm2, Ghostty, kitty, VS Code); others keep their own |
@@ -55,6 +56,7 @@ anywhere else, it lists them from every repository.
 | `R` | Re-run failed jobs (the selected check, or the whole pull request) |
 | `r` | Refresh now |
 | `p` | Show / hide passed and skipped checks |
+| `v` | Switch between the list and table layouts |
 | `t` | Switch between light and dark colours |
 | `b` | Try the next background colour (the footer shows the `--bg` to keep it) |
 | `1` `2` `3` | Assigned to me / Authored by me / Review requested |

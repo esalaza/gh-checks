@@ -19,6 +19,8 @@ rather than as the old failure. Piped output prints the list once.
       --show-passed     start with passed and skipped checks shown (hidden by
                         default; p toggles them)
       --no-mouse        leave the mouse to the terminal (normal text selection)
+      --list, --table   checks as one list per PR, ordered by status (the
+                        default), or as a table with a column per workflow
       --light, --dark   light colours on solarized cream (the default), or dark
                         colours on charcoal; t switches between them as it runs
       --bg COLOUR       background while the dashboard runs, as #rrggbb, or
@@ -34,6 +36,7 @@ Keys:
   Y                     copy the selected PR's URL
   b                     try the next background colour (keep one with --bg)
   t                     switch between dark and light colours
+  v                     switch between the list and table layouts
   R                     re-run failed jobs (selected check, or the whole PR)
   r                     refresh now
   p                     hide / show passed and skipped checks
@@ -51,7 +54,7 @@ Mouse:
 Symbols: ✗ failed  ● running  ○ queued (yellow)  ⊘ cancelled  ✓ passed  ○ skipped (grey)
 `;
 
-const opts = { repo: '', all: false, interval: 30, hidePassed: true, mouse: true, theme: '', demo: false, bg: '' };
+const opts = { repo: '', all: false, interval: 30, hidePassed: true, mouse: true, theme: '', demo: false, bg: '', layout: 'list' };
 const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
@@ -62,6 +65,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '--no-mouse') opts.mouse = false;
   else if (a === '--all') opts.all = true;
   else if (a === '--bg') opts.bg = argv[++i] || '';
+  else if (a === '--table' || a === '--list') opts.layout = a.slice(2);
   else if (a === '--demo') opts.demo = true; // made-up data from demo.json, for screenshots
   else if (a === '--light' || a === '--dark') opts.theme = a.slice(2);
   else if (a === '-h' || a === '--help') {
@@ -326,7 +330,15 @@ const GAP = 3; // spaces between table columns
 
 // The table's columns: every workflow on any listed PR, the busiest first so
 // the order holds between refreshes, and checks from other apps last.
+// The layout of the checks beside each PR: 'list' (one column, ordered by
+// status, each check followed by its workflow) or 'table' (a column per
+// workflow). Switched by the v key.
+let layout = opts.layout;
+const LIST = 'Checks';
+let listLabelW = 0; // the list's widest check name, so workflow names line up
+
 function tableColumns(prs) {
+  if (layout === 'list') return [LIST];
   const totals = new Map();
   for (const pr of prs) {
     for (const c of pr.checks) totals.set(c.wf || OTHER, (totals.get(c.wf || OTHER) || 0) + 1);
@@ -340,7 +352,7 @@ function tableColumns(prs) {
 // a count of the passed and skipped ones it hides.
 function cellOf(pr, name) {
   const shown = visibleChecks(pr);
-  const mine = pr.checks.filter((c) => (c.wf || OTHER) === name);
+  const mine = name === LIST ? pr.checks : pr.checks.filter((c) => (c.wf || OTHER) === name);
   const items = shown.map((c, index) => ({ c, index })).filter(({ c }) => mine.includes(c));
   const counts = ['pass', 'skip']
     .map((k) => [k, mine.filter((c) => c.cat === k && !shown.includes(c)).length])
@@ -357,7 +369,8 @@ function cellOf(pr, name) {
 function columnWidths(prs, names, labels, cols) {
   const widths = names.map((name, j) => Math.max(width(labels[j]), ...prs.map((pr) => {
     const { items, noteW } = cellOf(pr, name);
-    return Math.max(noteW, ...items.map(({ c }) => 2 + width(c.label)));
+    return Math.max(noteW, ...items.map(({ c }) =>
+      (layout === 'list' ? 2 + listLabelW + (c.wf ? 3 + width(c.wf) : 0) : 2 + width(c.label))));
   })));
   const avail = cols - 2 - GAP * Math.max(0, names.length - 1);
   let total = widths.reduce((a, b) => a + b, 0);
@@ -407,6 +420,7 @@ function buildLines(prs, cols, sel, copied = null) {
   const prW = Math.max(30, Math.min(50, Math.round(cols * 0.28)));
   const restCols = cols - prW - GAP;
   const names = tableColumns(prs);
+  listLabelW = Math.min(40, Math.max(0, ...prs.flatMap((pr) => visibleChecks(pr).map((c) => width(c.label)))));
   // Headings drop a "pr: "-style prefix when the full names don't fit across.
   let labels = names;
   let widths = columnWidths(prs, names, labels, restCols);
@@ -464,15 +478,20 @@ function buildLines(prs, cols, sel, copied = null) {
         const item = pc.items[r];
         if (!item) return r === pc.items.length && pc.note ? [xs[j], pc.note, pc.noteW] : [xs[j], '', 0];
         // Shorten the job name rather than the event tag that tells duplicates apart.
-        const label = fit(item.c.name, widths[j] - 2 - width(item.c.tag)) + item.c.tag;
+        const nameW = layout === 'list' ? Math.min(listLabelW, widths[j] - 2) : widths[j] - 2;
+        const label = fit(item.c.name, nameW - width(item.c.tag)) + item.c.tag;
+        const wfRoom = widths[j] - 2 - nameW - 3;
+        const wf = layout === 'list' && item.c.wf && wfRoom >= 4 ? fit(item.c.wf, wfRoom) : '';
+        const after = wf ? ' '.repeat(nameW - width(label) + 3) + sgr(T.dim, wf) : '';
+        const afterW = wf ? nameW - width(label) + 3 + width(wf) : 0;
         cells[i].push({ check: item.index, line: at, x: xs[j], band: 0 });
         hits[at].push({ pr: i, check: item.index, x0: xs[j], x1: xs[j] + widths[j] });
         if (sel && sel.pr === i && sel.check === item.index) {
           cursor = at;
-          return [xs[j], highlight(`${sym(item.c.cat)} ${sgr(`1;${T.title}`, label)}`), 2 + width(label)];
+          return [xs[j], highlight(`${sym(item.c.cat)} ${sgr(`1;${T.title}`, label)}`) + after, 2 + width(label) + afterW];
         }
         const tone = RANK[item.c.cat] >= RANK.cancel ? T.dim : T.title;
-        return [xs[j], `${sym(item.c.cat)} ${sgr(tone, label)}`, 2 + width(label)];
+        return [xs[j], `${sym(item.c.cat)} ${sgr(tone, label)}${after}`, 2 + width(label) + afterW];
       })]));
     }
     blocks.push([start, lines.length]);
@@ -721,7 +740,7 @@ function render() {
   else if (state.flash && state.flash.until > Date.now()) footer = sgr(state.flash.code, ` ${state.flash.text}`);
   else {
     // As many "key action" pairs as fit, keys bright and actions dim.
-    const keys = [['↑↓←→', 'move'], ['tab', 'next PR'], ['o', selected().check ? (selected().check.runId ? 'open job log' : 'open check') : 'open PR'], ['click #', 'copy'], ['R', 're-run failed'], ['r', 'refresh'],
+    const keys = [['↑↓←→', 'move'], ['tab', 'next PR'], ['o', selected().check ? (selected().check.runId ? 'open job log' : 'open check') : 'open PR'], ['click #', 'copy'], ['v', layout === 'list' ? 'table' : 'list'], ['R', 're-run failed'], ['r', 'refresh'],
       ['p', `${hidePassed ? 'show' : 'hide'} passed`], ['1-3', 'section'], ['?', 'help'], ['q', 'quit']];
     let used = 1;
     footer = ' ';
@@ -780,6 +799,7 @@ function onKey(key) {
     case 'Y': copyPr('url'); break;
     case 'b': nextBackground(); break;
     case 't': toggleTheme(); break;
+    case 'v': layout = layout === 'list' ? 'table' : 'list'; state.check = -1; break;
     case 'p': {
       const { check } = selected();
       hidePassed = !hidePassed;
