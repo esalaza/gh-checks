@@ -40,7 +40,7 @@ anywhere else, it lists them from every repository.
 | `--show-passed` | Start with passed and skipped checks listed (they are counted, not listed, by default) |
 | `--no-mouse` | Leave the mouse to the terminal, for normal text selection |
 | `--light`, `--dark` | Colours for a light or dark background |
-| `--bg COLOUR` | Window background while the dashboard runs, as `#rrggbb`, or `none` to keep the terminal's. Defaults to a neutral dark grey with the dark colours. Needs a terminal that supports it (iTerm2, Ghostty, kitty, VS Code); others keep their own |
+| `--bg COLOUR` | Window background while the dashboard runs, as `#rrggbb`, or `none` to keep the terminal's. Defaults to a neutral dark grey with the dark colours and a soft off-white with the light ones. Needs a terminal that supports it (iTerm2, Ghostty, kitty, VS Code); others keep their own |
 
 ### Keys
 
@@ -56,6 +56,7 @@ anywhere else, it lists them from every repository.
 | `r` | Refresh now |
 | `p` | Show / hide passed and skipped checks |
 | `b` | Try the next background colour (the footer shows the `--bg` to keep it) |
+| `t` | Switch between dark and light colours |
 | `1` `2` `3` | Assigned to me / Authored by me / Review requested |
 | `?` | Help |
 | `q`, `ctrl-c` | Quit |

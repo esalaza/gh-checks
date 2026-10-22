@@ -34,6 +34,7 @@ Keys:
   y                     copy the selected PR's number (#123) to the clipboard
   Y                     copy the selected PR's URL
   b                     try the next background colour (keep one with --bg)
+  t                     switch between dark and light colours
   R                     re-run failed jobs (selected check, or the whole PR)
   r                     refresh now
   p                     hide / show passed and skipped checks
@@ -227,12 +228,13 @@ const THEMES = {
     pass: '1;38;5;28', skip: '38;5;246',
     number: '1;38;5;25', repo: '38;5;25', prTitle: '1;38;5;232', title: '38;5;235', dim: '38;5;242', rule: '38;5;250', divider: '38;5;253',
     brand: '1;38;5;127', tabOn: '1;38;5;235;48;5;252', tabOff: '38;5;242',
-    selBg: '48;5;254', key: '1;38;5;25', confirm: '1;38;5;136', colHead: '1;38;5;240', bg: '',
+    selBg: '48;5;254', key: '1;38;5;25', confirm: '1;38;5;136', colHead: '1;38;5;240', bg: '#f7f7f5',
   },
 };
 // COLORFGBG ("15;0") ends with the background colour where the terminal sets it.
 const bgColour = Number((process.env.COLORFGBG || '').split(';').pop());
-const T = THEMES[opts.theme || (bgColour === 7 || bgColour === 15 ? 'light' : 'dark')];
+let themeName = opts.theme || (bgColour === 7 || bgColour === 15 ? 'light' : 'dark');
+let T = THEMES[themeName]; // swapped live by the t key
 
 const SYM = { fail: '✗', run: '●', queue: '○', cancel: '⊘', pass: '✓', skip: '○' };
 const sym = (cat) => sgr(T[cat], SYM[cat]);
@@ -706,6 +708,7 @@ function onKey(key) {
     case 'y': copyPr('number'); break;
     case 'Y': copyPr('url'); break;
     case 'b': nextBackground(); break;
+    case 't': toggleTheme(); break;
     case 'p': {
       const { check } = selected();
       hidePassed = !hidePassed;
@@ -795,18 +798,40 @@ if (bg && !/^#[0-9a-f]{6}$/i.test(bg)) {
 const BG_ON = bg ? `\x1b]11;${bg}\x07` : '';
 
 // Backgrounds to try with b, darkest first, ending with the terminal's own.
-const BACKGROUNDS = [
-  ['#1c1c21', 'charcoal'], ['#212126', 'graphite'], ['#25262b', 'slate'], ['#282c34', 'one dark'],
-  ['#2b2d31', 'ash'], ['#2e3440', 'nord'], ['#303236', 'pewter'], ['#34363c', 'smoke'], ['', 'your terminal\'s'],
-];
-let bgIndex = Math.max(0, BACKGROUNDS.findIndex(([hex]) => hex === bg));
+// Backgrounds to try with b, for each set of colours, ending with the terminal's own.
+const BACKGROUNDS = {
+  dark: [
+    ['#1c1c21', 'charcoal'], ['#212126', 'graphite'], ['#25262b', 'slate'], ['#282c34', 'one dark'],
+    ['#2b2d31', 'ash'], ['#2e3440', 'nord'], ['#303236', 'pewter'], ['#34363c', 'smoke'], ['', 'your terminal\'s'],
+  ],
+  light: [
+    ['#f7f7f5', 'paper'], ['#ffffff', 'white'], ['#f2f2ef', 'stone'], ['#eff1f5', 'latte'],
+    ['#f4f1ea', 'linen'], ['#fdf6e3', 'solarized'], ['#e9ebee', 'mist'], ['', 'your terminal\'s'],
+  ],
+};
+let bgIndex = Math.max(0, BACKGROUNDS[themeName].findIndex(([hex]) => hex === bg));
+
+function setBackground(hex) {
+  process.stdout.write(hex ? `\x1b]11;${hex}\x07` : '\x1b]111\x07');
+}
 
 function nextBackground() {
-  bgIndex = (bgIndex + 1) % BACKGROUNDS.length;
-  const [hex, name] = BACKGROUNDS[bgIndex];
-  process.stdout.write(hex ? `\x1b]11;${hex}\x07` : '\x1b]111\x07');
-  flash(`Background ${bgIndex + 1}/${BACKGROUNDS.length}: ${name}` +
-    (hex ? ` ${hex}. To keep it: gh checks --bg '${hex}'` : `. To keep it: gh checks --bg none`), T.key);
+  const list = BACKGROUNDS[themeName];
+  bgIndex = (bgIndex + 1) % list.length;
+  const [hex, name] = list[bgIndex];
+  setBackground(hex);
+  const theme = themeName === 'light' ? ' --light' : '';
+  flash(`Background ${bgIndex + 1}/${list.length}: ${name}` +
+    (hex ? ` ${hex}. To keep it: gh checks${theme} --bg '${hex}'` : `. To keep it: gh checks${theme} --bg none`), T.key);
+}
+
+// Swaps between the dark and light colours, each on its own default background.
+function toggleTheme() {
+  themeName = themeName === 'dark' ? 'light' : 'dark';
+  T = THEMES[themeName];
+  bgIndex = 0;
+  setBackground(BACKGROUNDS[themeName][0][0]);
+  flash(`${themeName === 'light' ? 'Light' : 'Dark'} colours. To keep them: gh checks --${themeName}`, T.key);
 }
 const RESTORE = (opts.mouse ? '\x1b[?1000l\x1b[?1006l' : '') + '\x1b]111\x07' +
   '\x1b[?7h\x1b[?25h\x1b[?1049l';
