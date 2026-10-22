@@ -224,8 +224,8 @@ const THEMES = {
     selBg: '48;5;237', key: '1;38;5;75', confirm: '1;38;5;221', colHead: '1;38;5;250', bg: '#1c1c21',
   },
   light: {
-    fail: '1;38;5;160', run: '1;38;5;166', queue: '38;5;136', cancel: '38;5;243',
-    pass: '1;38;5;28', skip: '38;5;246',
+    fail: '1;38;5;160', run: '1;38;5;166', queue: '1;38;5;130', cancel: '1;38;5;240',
+    pass: '1;38;5;28', skip: '1;38;5;243',
     number: '1;38;5;25', repo: '38;5;25', prTitle: '1;38;5;232', title: '38;5;235', dim: '38;5;242', rule: '38;5;250', divider: '38;5;253',
     brand: '1;38;5;127', tabOn: '1;38;5;235;48;5;252', tabOff: '38;5;242',
     selBg: '48;5;254', key: '1;38;5;25', confirm: '1;38;5;136', colHead: '1;38;5;240', bg: '#f7f7f5',
@@ -277,7 +277,7 @@ function cellOf(pr, name) {
     .filter(([, n]) => n);
   return {
     items,
-    note: counts.map(([k, n]) => `${sym(k)} ${sgr(T.dim, n)}`).join('  '),
+    note: counts.map(([k, n]) => sgr(T[k], `${SYM[k]} ${n}`)).join('  '),
     noteW: counts.reduce((w, [, n]) => w + 2 + String(n).length, 0) + 2 * Math.max(0, counts.length - 1),
   };
 }
