@@ -38,7 +38,7 @@ anywhere else, it lists them from every repository.
 | `--all` | Pull requests from every repository |
 | `-i`, `--interval SECS` | Refresh interval (default 30, minimum 5) |
 | `--show-passed` | Start with passed and skipped checks listed (they are counted, not listed, by default) |
-| `--list`, `--table` | Each PR's checks as one list ordered by status, with their workflow and timing beside them ("started 3m ago", "failed after 2m"; the default), or as a table with a column per workflow |
+| `--list`, `--table` | Each PR's checks as one list ordered by status, with their timing and workflow beside them ("started 3m ago", "failed after 2m"; the default), or as a table with a column per workflow |
 | `--no-mouse` | Leave the mouse to the terminal, for normal text selection |
 | `--light`, `--dark` | Light colours on a solarized cream background (the default), or dark colours on charcoal |
 | `--bg COLOUR` | Window background while the dashboard runs, as `#rrggbb`, or `none` to keep the terminal's. Defaults to solarized cream `#fdf6e3` with the light colours and charcoal `#1c1c21` with the dark ones. Needs a terminal that supports it (iTerm2, Ghostty, kitty, VS Code); others keep their own |

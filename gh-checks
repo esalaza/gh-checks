@@ -339,7 +339,7 @@ const GAP = 3; // spaces between table columns
 let layout = opts.layout;
 const LIST = 'Checks';
 let listLabelW = 0; // the list's widest check name, so workflow names line up
-let listWfW = 0; // and its widest workflow name, so the times line up
+let listTimeW = 0; // and its widest timing, so the workflow names line up
 
 // "3m", "1h 5m", "45s".
 function duration(ms) {
@@ -398,7 +398,7 @@ function columnWidths(prs, names, labels, cols) {
   const widths = names.map((name, j) => Math.max(width(labels[j]), ...prs.map((pr) => {
     const { items, noteW } = cellOf(pr, name);
     return Math.max(noteW, ...items.map(({ c }) =>
-      (layout === 'list' ? 2 + listLabelW + 3 + listWfW + 3 + width(timing(c)) : 2 + width(c.label))));
+      (layout === 'list' ? 2 + listLabelW + 3 + listTimeW + 3 + width(c.wf) : 2 + width(c.label))));
   })));
   const avail = cols - 2 - GAP * Math.max(0, names.length - 1);
   let total = widths.reduce((a, b) => a + b, 0);
@@ -453,7 +453,7 @@ function buildLines(prs, cols, sel, copied = null) {
   const restCols = cols - prW - GAP;
   const names = tableColumns(prs);
   listLabelW = Math.min(40, Math.max(0, ...prs.flatMap((pr) => visibleChecks(pr).map((c) => width(c.label)))));
-  listWfW = Math.min(30, Math.max(0, ...prs.flatMap((pr) => visibleChecks(pr).map((c) => width(c.wf)))));
+  listTimeW = Math.min(24, Math.max(0, ...prs.flatMap((pr) => visibleChecks(pr).map((c) => width(timing(c))))));
   // Headings drop a "pr: "-style prefix when the full names don't fit across.
   let labels = names;
   let widths = columnWidths(prs, names, labels, restCols);
@@ -516,17 +516,18 @@ function buildLines(prs, cols, sel, copied = null) {
         let after = '';
         let afterW = 0;
         if (layout === 'list') {
+          // Name, then timing, then workflow, each lined up.
           const room = widths[j] - 2 - nameW - 3;
-          const wfW = Math.min(listWfW, room);
-          const wf = wfW >= 4 ? fit(item.c.wf, wfW) : '';
-          const time = room - wfW - 3 >= 6 ? fit(timing(item.c), room - wfW - 3) : '';
-          if (wf || time) {
-            after = ' '.repeat(nameW - width(label) + 3) + sgr(T.dim, wf);
-            afterW = nameW - width(label) + 3 + width(wf);
+          const timeW = Math.min(listTimeW, room);
+          const time = timeW >= 6 ? fit(timing(item.c), timeW) : '';
+          const wf = room - timeW - 3 >= 4 ? fit(item.c.wf, room - timeW - 3) : '';
+          if (time || wf) {
+            after = ' '.repeat(nameW - width(label) + 3) + sgr(T.dim, time);
+            afterW = nameW - width(label) + 3 + width(time);
           }
-          if (time) {
-            after += ' '.repeat(wfW - width(wf) + 3) + sgr(T.dim, time);
-            afterW += wfW - width(wf) + 3 + width(time);
+          if (wf) {
+            after += ' '.repeat(timeW - width(time) + 3) + sgr(T.dim, wf);
+            afterW += timeW - width(time) + 3 + width(wf);
           }
         }
         cells[i].push({ check: item.index, line: at, x: xs[j], band: 0 });
