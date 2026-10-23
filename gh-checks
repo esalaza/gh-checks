@@ -21,7 +21,7 @@ rather than as the old failure. Piped output prints the list once.
       --no-mouse        leave the mouse to the terminal (normal text selection)
       --list, --table   checks as one list per PR, ordered by status (the
                         default), or as a table with a column per workflow
-      --light, --dark   light colours on solarized cream (the default), or dark
+      --light, --dark   light colours on paper white (the default), or dark
                         colours on charcoal; t switches between them as it runs
       --bg COLOUR       background while the dashboard runs, as #rrggbb, or
                         "none" to keep the terminal's; b tries others as it runs
@@ -303,12 +303,12 @@ const THEMES = {
     pass: '1;38;5;28', skip: '1;38;5;243',
     number: '1;38;5;25', repo: '38;5;25', prTitle: '1;38;5;232', title: '38;5;235', dim: '38;5;242', rule: '38;5;250', divider: '38;5;253',
     brand: '1;38;5;127', tabOn: '1;38;5;235;48;5;252', tabOff: '38;5;242',
-    selBg: '48;5;254', key: '1;38;5;25', confirm: '1;38;5;136', colHead: '1;38;5;240', bg: '#fdf6e3',
+    selBg: '48;5;254', key: '1;38;5;25', confirm: '1;38;5;136', colHead: '1;38;5;240', bg: '#f7f7f5',
   },
 };
 // COLORFGBG ("15;0") ends with the background colour where the terminal sets it.
 const bgColour = Number((process.env.COLORFGBG || '').split(';').pop());
-// The dashboard defaults to light colours on its own cream background. Piped
+// The dashboard defaults to light colours on its own paper background. Piped
 // output can't set a background, so it follows the terminal's where known.
 let themeName = opts.theme || (tty || bgColour === 7 || bgColour === 15 ? 'light' : 'dark');
 let T = THEMES[themeName]; // swapped live by the t key
@@ -341,13 +341,13 @@ const LIST = 'Checks';
 let listLabelW = 0; // the list's widest check name, so workflow names line up
 let listTimeW = 0; // and its widest timing, so the workflow names line up
 
-// "3m", "1h 5m", "45s".
-function duration(ms) {
-  const s = Math.max(0, Math.round(ms / 1000));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return s % 60 && m < 10 ? `${m}m ${s % 60}s` : `${m}m`;
-  return `${Math.floor(m / 60)}h ${m % 60}m`;
+// Whole minutes: "<1m", "3m", "1h 5m". A time still running is marked
+// approximate ("~3m"), as it moves on between refreshes.
+function duration(ms, running = false) {
+  const m = Math.floor(Math.max(0, ms) / 60000);
+  if (m < 1) return '<1m';
+  const text = m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`;
+  return running ? `~${text}` : text;
 }
 
 // A check's timing, as GitHub words it: "started 3m ago", "failed after 3m".
@@ -356,8 +356,8 @@ function timing(c) {
   const start = Date.parse(c.started);
   const end = c.completed ? Date.parse(c.completed) : Date.now();
   switch (c.cat) {
-    case 'run': return `started ${duration(Date.now() - start)} ago`;
-    case 'queue': return `waiting ${duration(Date.now() - start)}`;
+    case 'run': return `started ${duration(Date.now() - start, true)} ago`;
+    case 'queue': return `waiting ${duration(Date.now() - start, true)}`;
     case 'pass': return c.completed ? `took ${duration(end - start)}` : '';
     case 'fail': return c.completed ? `failed after ${duration(end - start)}` : '';
     case 'cancel': return c.completed ? `cancelled after ${duration(end - start)}` : '';
@@ -952,7 +952,7 @@ const BACKGROUNDS = {
     ['#2b2d31', 'ash'], ['#2e3440', 'nord'], ['#303236', 'pewter'], ['#34363c', 'smoke'], ['', 'your terminal\'s'],
   ],
   light: [
-    ['#fdf6e3', 'solarized'], ['#f7f7f5', 'paper'], ['#ffffff', 'white'], ['#f2f2ef', 'stone'],
+    ['#f7f7f5', 'paper'], ['#fdf6e3', 'solarized'], ['#ffffff', 'white'], ['#f2f2ef', 'stone'],
     ['#eff1f5', 'latte'], ['#f4f1ea', 'linen'], ['#e9ebee', 'mist'], ['', 'your terminal\'s'],
   ],
 };
