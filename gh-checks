@@ -94,7 +94,7 @@ query($q: String!) {
         commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
           __typename
           ... on CheckRun {
-            name status conclusion detailsUrl startedAt
+            name status conclusion detailsUrl startedAt completedAt
             checkSuite { workflowRun { databaseId event workflow { name } } }
           }
           ... on StatusContext { context state targetUrl createdAt }
@@ -149,7 +149,8 @@ function toPr(node) {
     const check =
       ctx.__typename === 'CheckRun'
         ? { wf: run?.workflow?.name ?? '', event: run?.event ?? '', runId: run?.databaseId ?? null, name: ctx.name,
-            url: ctx.detailsUrl ?? '', t: ctx.startedAt ?? '9999', cat: category(ctx) }
+            url: ctx.detailsUrl ?? '', t: ctx.startedAt ?? '9999', cat: category(ctx),
+            started: ctx.startedAt ?? null, completed: ctx.completedAt ?? null }
         : { wf: '', event: '', runId: null, name: ctx.context, url: ctx.targetUrl ?? '',
             t: ctx.createdAt ?? '', cat: category(ctx) };
     const key = `${check.wf}\u0000${check.name}\u0000${check.event}`;
@@ -250,9 +251,11 @@ function demoNode(pr, repo) {
   const app = { pass: 'SUCCESS', fail: 'FAILURE', run: 'PENDING', queue: 'EXPECTED' };
   const url = `https://github.com/${repo}/pull/${pr.number}`;
   const runIds = [...new Set(pr.checks.map(([wf]) => wf))]; // one run per workflow, as on GitHub
-  const contexts = pr.checks.map(([wf, name, status]) => wf
+  const minutesAgo = (m) => new Date(Date.now() - m * 60000).toISOString();
+  const contexts = pr.checks.map(([wf, name, status], k) => wf
     ? { __typename: 'CheckRun', name, status: run[status][0], conclusion: run[status][1], detailsUrl: `${url}/checks`,
-        startedAt: '2026-01-01T00:00:00Z', checkSuite: { workflowRun: { databaseId: runIds.indexOf(wf) + 1, workflow: { name: wf } } } }
+        startedAt: minutesAgo(4 + ((k * 7) % 19)),
+        completedAt: run[status][0] === 'COMPLETED' ? minutesAgo(1 + ((k * 3) % 4)) : null, checkSuite: { workflowRun: { databaseId: runIds.indexOf(wf) + 1, workflow: { name: wf } } } }
     : { __typename: 'StatusContext', context: name, state: app[status], targetUrl: url });
   return { number: pr.number, title: pr.title, url, isDraft: !!pr.draft,
            repository: { name: repo.split('/')[1], nameWithOwner: repo },
@@ -336,6 +339,31 @@ const GAP = 3; // spaces between table columns
 let layout = opts.layout;
 const LIST = 'Checks';
 let listLabelW = 0; // the list's widest check name, so workflow names line up
+let listWfW = 0; // and its widest workflow name, so the times line up
+
+// "3m", "1h 5m", "45s".
+function duration(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return s % 60 && m < 10 ? `${m}m ${s % 60}s` : `${m}m`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+// A check's timing, as GitHub words it: "started 3m ago", "failed after 3m".
+function timing(c) {
+  if (!c.started) return '';
+  const start = Date.parse(c.started);
+  const end = c.completed ? Date.parse(c.completed) : Date.now();
+  switch (c.cat) {
+    case 'run': return `started ${duration(Date.now() - start)} ago`;
+    case 'queue': return `waiting ${duration(Date.now() - start)}`;
+    case 'pass': return c.completed ? `took ${duration(end - start)}` : '';
+    case 'fail': return c.completed ? `failed after ${duration(end - start)}` : '';
+    case 'cancel': return c.completed ? `cancelled after ${duration(end - start)}` : '';
+    default: return '';
+  }
+}
 
 function tableColumns(prs) {
   if (layout === 'list') return [LIST];
@@ -370,7 +398,7 @@ function columnWidths(prs, names, labels, cols) {
   const widths = names.map((name, j) => Math.max(width(labels[j]), ...prs.map((pr) => {
     const { items, noteW } = cellOf(pr, name);
     return Math.max(noteW, ...items.map(({ c }) =>
-      (layout === 'list' ? 2 + listLabelW + (c.wf ? 3 + width(c.wf) : 0) : 2 + width(c.label))));
+      (layout === 'list' ? 2 + listLabelW + 3 + listWfW + 3 + width(timing(c)) : 2 + width(c.label))));
   })));
   const avail = cols - 2 - GAP * Math.max(0, names.length - 1);
   let total = widths.reduce((a, b) => a + b, 0);
@@ -425,6 +453,7 @@ function buildLines(prs, cols, sel, copied = null) {
   const restCols = cols - prW - GAP;
   const names = tableColumns(prs);
   listLabelW = Math.min(40, Math.max(0, ...prs.flatMap((pr) => visibleChecks(pr).map((c) => width(c.label)))));
+  listWfW = Math.min(30, Math.max(0, ...prs.flatMap((pr) => visibleChecks(pr).map((c) => width(c.wf)))));
   // Headings drop a "pr: "-style prefix when the full names don't fit across.
   let labels = names;
   let widths = columnWidths(prs, names, labels, restCols);
@@ -484,10 +513,22 @@ function buildLines(prs, cols, sel, copied = null) {
         // Shorten the job name rather than the event tag that tells duplicates apart.
         const nameW = layout === 'list' ? Math.min(listLabelW, widths[j] - 2) : widths[j] - 2;
         const label = fit(item.c.name, nameW - width(item.c.tag)) + item.c.tag;
-        const wfRoom = widths[j] - 2 - nameW - 3;
-        const wf = layout === 'list' && item.c.wf && wfRoom >= 4 ? fit(item.c.wf, wfRoom) : '';
-        const after = wf ? ' '.repeat(nameW - width(label) + 3) + sgr(T.dim, wf) : '';
-        const afterW = wf ? nameW - width(label) + 3 + width(wf) : 0;
+        let after = '';
+        let afterW = 0;
+        if (layout === 'list') {
+          const room = widths[j] - 2 - nameW - 3;
+          const wfW = Math.min(listWfW, room);
+          const wf = wfW >= 4 ? fit(item.c.wf, wfW) : '';
+          const time = room - wfW - 3 >= 6 ? fit(timing(item.c), room - wfW - 3) : '';
+          if (wf || time) {
+            after = ' '.repeat(nameW - width(label) + 3) + sgr(T.dim, wf);
+            afterW = nameW - width(label) + 3 + width(wf);
+          }
+          if (time) {
+            after += ' '.repeat(wfW - width(wf) + 3) + sgr(T.dim, time);
+            afterW += wfW - width(wf) + 3 + width(time);
+          }
+        }
         cells[i].push({ check: item.index, line: at, x: xs[j], band: 0 });
         hits[at].push({ pr: i, check: item.index, x0: xs[j], x1: xs[j] + widths[j] });
         if (sel && sel.pr === i && sel.check === item.index) {
