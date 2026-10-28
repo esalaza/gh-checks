@@ -85,6 +85,13 @@ Under each pull request's title, after its counts, **draft** marks a draft and
 **auto-merge** one that will merge itself once its checks pass (with the merge
 method when it isn't squash, such as **auto-merge (rebase)**).
 
+A line below that says where the pull request stands: **conflicts**, **behind
+main** or **ready to merge**; who requested changes or approved it, or who it is
+**waiting on**; and how many review comments are **unresolved**.
+
+A check's name is faint when the target branch doesn't require it, so the
+failures that block merging stand out.
+
 A check marked **(expected)** is one the target branch requires that hasn't
 reported yet, usually because its workflow is waiting for a runner. GitHub
 shows these as "Expected — Waiting for status to be reported". When a job runs

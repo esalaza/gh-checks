@@ -91,6 +91,10 @@ query($q: String!) {
       ... on PullRequest {
         number title url isDraft baseRefName
         autoMergeRequest { mergeMethod }
+        mergeStateStatus reviewDecision
+        latestReviews(first: 20) { nodes { state author { login } } }
+        reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login } ... on Team { name } ... on Bot { login } } } }
+        reviewThreads(first: 100) { nodes { isResolved } }
         repository { name nameWithOwner }
         commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
           __typename
@@ -169,6 +173,11 @@ function toPr(node) {
   }
   return settle({ number: node.number, title: node.title, url: node.url, draft: node.isDraft, base: node.baseRefName,
                   autoMerge: node.autoMergeRequest?.mergeMethod ?? null,
+                  mergeState: node.mergeStateStatus ?? null, reviewDecision: node.reviewDecision ?? null,
+                  reviews: (node.latestReviews?.nodes ?? []).map((r) => ({ state: r.state, by: r.author?.login ?? '?' })),
+                  waitingOn: (node.reviewRequests?.nodes ?? []).map((r) => r.requestedReviewer?.login ?? r.requestedReviewer?.name)
+                    .filter(Boolean),
+                  unresolved: (node.reviewThreads?.nodes ?? []).filter((t) => !t.isResolved).length,
                   repo: node.repository.nameWithOwner, repoName: node.repository.name, checks });
 }
 
@@ -211,17 +220,26 @@ async function requiredChecks(repo, branch) {
 // GitHub lists a required check as "Expected" until its job reports, which can
 // be a while when the workflow is waiting for a runner. Shows those as queued,
 // in the workflow column the check appears under on other PRs, if any.
+// Notes which checks the target branch requires, so the optional ones can be
+// drawn fainter. A branch that requires none leaves every check as it is.
+function markRequired(pr, required) {
+  pr.hasRequired = required.size > 0;
+  for (const c of pr.checks) c.required = required.has(c.name);
+}
+
 async function addExpectedChecks(prs) {
   const workflowOf = new Map();
   for (const pr of prs) for (const c of pr.checks) if (c.wf) workflowOf.set(c.name, c.wf);
   await Promise.all(prs.map(async (pr) => {
     if (!pr.base) return;
+    const required = await requiredChecks(pr.repo, pr.base);
+    markRequired(pr, required);
     const reported = new Set(pr.checks.map((c) => c.name));
-    const missing = [...await requiredChecks(pr.repo, pr.base)].filter((name) => !reported.has(name));
+    const missing = [...required].filter((name) => !reported.has(name));
     if (!missing.length) return;
     for (const name of missing) {
       pr.checks.push({ wf: workflowOf.get(name) ?? '', event: '', tag: ' (expected)', runId: null, name,
-                       label: `${name} (expected)`, url: `${pr.url}/checks`, t: '', cat: 'queue' });
+                       label: `${name} (expected)`, url: `${pr.url}/checks`, t: '', cat: 'queue', required: true });
     }
     settle(pr);
   }));
@@ -261,6 +279,10 @@ function demoNode(pr, repo) {
     : { __typename: 'StatusContext', context: name, state: app[status], targetUrl: url });
   return { number: pr.number, title: pr.title, url, isDraft: !!pr.draft,
            autoMergeRequest: pr.autoMerge ? { mergeMethod: pr.autoMerge } : null,
+           mergeStateStatus: pr.mergeState ?? 'BLOCKED', reviewDecision: pr.reviewDecision ?? 'REVIEW_REQUIRED',
+           latestReviews: { nodes: (pr.reviews ?? []).map(([state, login]) => ({ state, author: { login } })) },
+           reviewRequests: { nodes: (pr.waitingOn ?? []).map((login) => ({ requestedReviewer: { login } })) },
+           reviewThreads: { nodes: Array.from({ length: pr.unresolved ?? 0 }, () => ({ isResolved: false })) },
            repository: { name: repo.split('/')[1], nameWithOwner: repo },
            commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: contexts } } } }] } };
 }
@@ -269,6 +291,7 @@ async function fetchPrs(section) {
   if (opts.demo) {
     const { repo, sections } = demoData();
     const prs = sections[SECTIONS.indexOf(section)].map((pr) => toPr(demoNode(pr, repo)));
+    for (const pr of prs) markRequired(pr, new Set(demoData().required ?? []));
     return { total: prs.length, prs };
   }
   const q = `is:pr is:open archived:false sort:updated-desc ${section.qualifiers}` +
@@ -427,6 +450,47 @@ function row(pieces) {
   return line;
 }
 
+// Where a PR stands for merging and review, as coloured pieces:
+// "conflicts", "behind main", "ready to merge", "changes requested by ana",
+// "approved by luke", "waiting on ana, luke", "3 unresolved". "Blocked" goes
+// unsaid, as the checks and review state already explain it.
+function prStatus(pr) {
+  const out = [];
+  const merge = {
+    DIRTY: ['conflicts', T.fail], BEHIND: [`behind ${pr.base || 'base'}`, T.queue],
+    CLEAN: ['ready to merge', T.pass], HAS_HOOKS: ['ready to merge', T.pass], UNSTABLE: ['ready to merge', T.pass],
+  }[pr.mergeState];
+  if (merge && !pr.draft) out.push(merge);
+  const by = (state) => [...new Set(pr.reviews.filter((r) => r.state === state).map((r) => r.by))].join(', ');
+  if (pr.reviewDecision === 'CHANGES_REQUESTED' || by('CHANGES_REQUESTED')) {
+    out.push([`changes requested${by('CHANGES_REQUESTED') ? ` by ${by('CHANGES_REQUESTED')}` : ''}`, T.fail]);
+  } else if (by('APPROVED')) {
+    out.push([`approved by ${by('APPROVED')}`, T.pass]);
+  } else if (pr.reviewDecision === 'REVIEW_REQUIRED' && !pr.waitingOn.length && !pr.draft) {
+    out.push(['review required', T.queue]);
+  }
+  if (pr.waitingOn.length) out.push([`waiting on ${pr.waitingOn.join(', ')}`, T.queue]);
+  if (pr.unresolved) out.push([`${pr.unresolved} unresolved`, T.queue]);
+  return out;
+}
+
+// Packs coloured [text, tone] pieces into lines of at most `w` columns, two
+// spaces apart, as [line, visible width] pairs.
+function packStatus(pieces, w) {
+  const lines = [];
+  for (const [raw, tone] of pieces) {
+    const text = fit(raw, w);
+    const last = lines[lines.length - 1];
+    if (last && last[1] + 2 + width(text) <= w) {
+      last[0] += `  ${sgr(tone, text)}`;
+      last[1] += 2 + width(text);
+    } else {
+      lines.push([sgr(tone, text), width(text)]);
+    }
+  }
+  return lines;
+}
+
 // Word-wraps `text` to `w` columns, in at most `max` lines.
 function wrap(text, w, max) {
   const out = [];
@@ -503,6 +567,7 @@ function buildLines(prs, cols, sel, copied = null) {
       ]),
       [gutter(titleLines.length) + sum.text + tags.map(([text, tone]) => `  ${sgr(tone, text)}`).join(''),
         indent + sum.w + tags.reduce((w, [text]) => w + 2 + width(text), 0)],
+      ...packStatus(prStatus(pr), prW - indent).map(([text, w]) => [' '.repeat(indent) + text, indent + w]),
     ];
 
     cells[i] = [];
@@ -545,7 +610,8 @@ function buildLines(prs, cols, sel, copied = null) {
           cursor = at;
           return [xs[j], highlight(`${sym(item.c.cat)} ${sgr(`1;${T.title}`, label)}`) + after, 2 + width(label) + afterW];
         }
-        const tone = RANK[item.c.cat] >= RANK.cancel ? T.dim : T.title;
+        const optional = prs[i].hasRequired && !item.c.required;
+        const tone = RANK[item.c.cat] >= RANK.cancel || optional ? T.dim : T.title;
         return [xs[j], `${sym(item.c.cat)} ${sgr(tone, label)}${after}`, 2 + width(label) + afterW];
       })]));
     }

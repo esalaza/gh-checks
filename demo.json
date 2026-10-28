@@ -1,9 +1,14 @@
 {
   "repo": "acme/storefront",
+  "required": ["lint", "typecheck", "unit (1/3)", "unit (2/3)", "unit (3/3)", "e2e (chromium)", "e2e (firefox)", "e2e (webkit)", "approval-gate"],
   "sections": [
     [
       {
         "number": 482,
+        "mergeState": "BLOCKED",
+        "reviewDecision": "CHANGES_REQUESTED",
+        "reviews": [["CHANGES_REQUESTED", "ana"]],
+        "unresolved": 2,
         "title": "fix: keep the cart total in sync after a coupon is removed",
         "checks": [
           ["ci: build", "lint", "pass"], ["ci: build", "typecheck", "pass"],
@@ -17,6 +22,9 @@
       },
       {
         "number": 479,
+        "mergeState": "BLOCKED",
+        "reviewDecision": "REVIEW_REQUIRED",
+        "waitingOn": ["ana", "luke"],
         "autoMerge": "SQUASH",
         "title": "feat: add saved addresses to the checkout form",
         "checks": [
@@ -31,6 +39,9 @@
       },
       {
         "number": 476,
+        "mergeState": "DIRTY",
+        "reviewDecision": "REVIEW_REQUIRED",
+        "waitingOn": ["luke"],
         "title": "chore: upgrade the router to v7",
         "checks": [
           ["ci: build", "lint", "pass"], ["ci: build", "typecheck", "fail"],
@@ -44,6 +55,9 @@
       },
       {
         "number": 471,
+        "mergeState": "CLEAN",
+        "reviewDecision": "APPROVED",
+        "reviews": [["APPROVED", "ana"]],
         "title": "perf: lazy-load product images below the fold",
         "checks": [
           ["ci: build", "lint", "pass"], ["ci: build", "typecheck", "pass"],
@@ -71,6 +85,9 @@
     [
       {
         "number": 485,
+        "mergeState": "BEHIND",
+        "reviewDecision": "APPROVED",
+        "reviews": [["APPROVED", "luke"]],
         "autoMerge": "SQUASH",
         "title": "feat: show delivery estimates on the product page",
         "checks": [
@@ -85,6 +102,10 @@
       },
       {
         "number": 482,
+        "mergeState": "BLOCKED",
+        "reviewDecision": "CHANGES_REQUESTED",
+        "reviews": [["CHANGES_REQUESTED", "ana"]],
+        "unresolved": 2,
         "title": "fix: keep the cart total in sync after a coupon is removed",
         "checks": [
           ["ci: build", "lint", "pass"], ["ci: build", "typecheck", "pass"],
@@ -100,6 +121,9 @@
     [
       {
         "number": 474,
+        "mergeState": "BLOCKED",
+        "reviewDecision": "REVIEW_REQUIRED",
+        "unresolved": 1,
         "title": "refactor: move pricing rules into their own module",
         "checks": [
           ["ci: build", "lint", "fail"], ["ci: build", "typecheck", "pass"],
@@ -113,6 +137,9 @@
       },
       {
         "number": 463,
+        "mergeState": "CLEAN",
+        "reviewDecision": "APPROVED",
+        "reviews": [["APPROVED", "ana"], ["APPROVED", "luke"]],
         "title": "feat: let shoppers compare up to four products side by side",
         "checks": [
           ["ci: build", "lint", "pass"], ["ci: build", "typecheck", "pass"],
