@@ -90,6 +90,7 @@ query($q: String!) {
     nodes {
       ... on PullRequest {
         number title url isDraft baseRefName
+        autoMergeRequest { mergeMethod }
         repository { name nameWithOwner }
         commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
           __typename
@@ -167,6 +168,7 @@ function toPr(node) {
     c.label = c.name + c.tag;
   }
   return settle({ number: node.number, title: node.title, url: node.url, draft: node.isDraft, base: node.baseRefName,
+                  autoMerge: node.autoMergeRequest?.mergeMethod ?? null,
                   repo: node.repository.nameWithOwner, repoName: node.repository.name, checks });
 }
 
@@ -258,6 +260,7 @@ function demoNode(pr, repo) {
         completedAt: run[status][0] === 'COMPLETED' ? minutesAgo(1 + ((k * 3) % 4)) : null, checkSuite: { workflowRun: { databaseId: runIds.indexOf(wf) + 1, workflow: { name: wf } } } }
     : { __typename: 'StatusContext', context: name, state: app[status], targetUrl: url });
   return { number: pr.number, title: pr.title, url, isDraft: !!pr.draft,
+           autoMergeRequest: pr.autoMerge ? { mergeMethod: pr.autoMerge } : null,
            repository: { name: repo.split('/')[1], nameWithOwner: repo },
            commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: contexts } } } }] } };
 }
@@ -478,10 +481,15 @@ function buildLines(prs, cols, sel, copied = null) {
     const selectedPr = sel && sel.pr === i && sel.check < 0;
     if (selectedPr) cursor = start;
 
-    // The PR cell: number and wrapped title, then the counts (and "draft").
+    // The PR cell: number and wrapped title, then the counts, then "draft"
+    // and "auto-merge" where they apply (squash, the usual method, goes unsaid).
     const prefix = `${multi ? pr.repoName + ' ' : ''}#${pr.number}`;
     const indent = width(prefix) + 2;
     const titleLines = wrap(pr.title, prW - indent, 3);
+    const tags = [
+      pr.draft && ['draft', T.dim],
+      pr.autoMerge && [pr.autoMerge === 'SQUASH' ? 'auto-merge' : `auto-merge (${pr.autoMerge.toLowerCase()})`, T.key],
+    ].filter(Boolean);
     const sum = summary(pr.counts);
     // Just copied: the "#" turns into a green tick, with "copied" beneath it
     // where the gutter is wide enough.
@@ -493,7 +501,8 @@ function buildLines(prs, cols, sel, copied = null) {
         k === 0 ? `${number}  ${sgr(T.prTitle, t)}` : gutter(k) + sgr(T.prTitle, t),
         indent + width(t),
       ]),
-      [gutter(titleLines.length) + sum.text + (pr.draft ? `  ${sgr(T.dim, 'draft')}` : ''), indent + sum.w + (pr.draft ? 7 : 0)],
+      [gutter(titleLines.length) + sum.text + tags.map(([text, tone]) => `  ${sgr(tone, text)}`).join(''),
+        indent + sum.w + tags.reduce((w, [text]) => w + 2 + width(text), 0)],
     ];
 
     cells[i] = [];

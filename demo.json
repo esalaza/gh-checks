@@ -17,6 +17,7 @@
       },
       {
         "number": 479,
+        "autoMerge": "SQUASH",
         "title": "feat: add saved addresses to the checkout form",
         "checks": [
           ["ci: build", "lint", "pass"], ["ci: build", "typecheck", "pass"],
@@ -70,6 +71,7 @@
     [
       {
         "number": 485,
+        "autoMerge": "SQUASH",
         "title": "feat: show delivery estimates on the product page",
         "checks": [
           ["ci: build", "lint", "pass"], ["ci: build", "typecheck", "pass"],

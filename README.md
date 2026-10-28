@@ -81,6 +81,10 @@ copy the number, scroll with the wheel and click a tab to switch sections. Hold 
 
 Checks posted by apps rather than by a workflow appear under **Other checks**.
 
+Under each pull request's title, after its counts, **draft** marks a draft and
+**auto-merge** one that will merge itself once its checks pass (with the merge
+method when it isn't squash, such as **auto-merge (rebase)**).
+
 A check marked **(expected)** is one the target branch requires that hasn't
 reported yet, usually because its workflow is waiting for a runner. GitHub
 shows these as "Expected — Waiting for status to be reported". When a job runs
