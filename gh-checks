@@ -579,9 +579,10 @@ function buildLines(prs, cols, sel, copied = null) {
         k === 0 ? `${number}  ${sgr(iconTone, icon)} ${sgr(T.prTitle, t)}` : `${gutter(k)}  ${sgr(T.prTitle, t)}`,
         indent + 2 + width(t),
       ]),
-      [gutter(titleLines.length) + sum.text + tags.map(([text, tone]) => `  ${sgr(tone, text)}`).join(''),
-        indent + sum.w + tags.reduce((w, [text]) => w + 2 + width(text), 0)],
-      ...packStatus(prStatus(pr), prW - indent).map(([text, w]) => [' '.repeat(indent) + text, indent + w]),
+      // The counts and status line up with the title's text, past its icon.
+      [`${gutter(titleLines.length)}  ${sum.text}${tags.map(([text, tone]) => `  ${sgr(tone, text)}`).join('')}`,
+        indent + 2 + sum.w + tags.reduce((w, [text]) => w + 2 + width(text), 0)],
+      ...packStatus(prStatus(pr), prW - indent - 2).map(([text, w]) => [`${' '.repeat(indent)}  ${text}`, indent + 2 + w]),
     ];
 
     cells[i] = [];
