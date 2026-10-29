@@ -37,7 +37,8 @@ Keys:
   b                     try the next background colour (keep one with --bg)
   t                     switch between dark and light colours
   v                     switch between the list and table layouts
-  s                     sort by status (failing first) or by most recently updated
+  s                     sort by status (failing first, the default) or by most
+                        recently updated
   R                     re-run failed jobs (selected check, or the whole PR)
   r                     refresh now
   p                     hide / show passed and skipped checks
@@ -676,10 +677,10 @@ const state = {
   copied: null, // { key: 'owner/repo#123', until }: the number just copied by a click
 };
 
-// PRs come from GitHub most recently updated first. The s key reorders them
-// by their summary icon instead: failing, then running, then green, then
-// those with no checks, keeping the update order within each.
-let sortBy = 'updated';
+// PRs are shown by their summary icon: failing, then running, then green,
+// then those with no checks, keeping GitHub's most-recently-updated order
+// within each. The s key switches to that update order alone.
+let sortBy = 'status';
 const STATUS_ORDER = { [SYM.fail]: 0, [SYM.run]: 1, [SYM.pass]: 2, [SYM.skip]: 3 };
 function ordered(list) {
   if (sortBy !== 'status') return list;
