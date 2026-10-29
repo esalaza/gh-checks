@@ -17,6 +17,7 @@
           ["ci: e2e", "e2e (webkit)", "fail"], ["ci: e2e", "visual-regression", "fail"],
           ["deploy: preview", "deploy-preview", "pass"],
           ["security: audit", "dependency-audit", "pass"], ["security: audit", "secret-scan", "pass"],
+          ["bot: review-fixer", "apply-suggestions", "run", "pull_request_review"],
           ["", "review-bot", "pass"], ["", "approval-gate", "queue"]
         ]
       },
@@ -114,6 +115,7 @@
           ["ci: e2e", "e2e (webkit)", "fail"], ["ci: e2e", "visual-regression", "fail"],
           ["deploy: preview", "deploy-preview", "pass"],
           ["security: audit", "dependency-audit", "pass"], ["security: audit", "secret-scan", "pass"],
+          ["bot: review-fixer", "apply-suggestions", "run", "pull_request_review"],
           ["", "review-bot", "pass"], ["", "approval-gate", "queue"]
         ]
       }

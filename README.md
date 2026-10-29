@@ -101,7 +101,9 @@ A check marked **(expected)** is one the target branch requires that hasn't
 reported yet, usually because its workflow is waiting for a runner. GitHub
 shows these as "Expected — Waiting for status to be reported". When a job runs
 for more than one event, its name carries the event, such as **(push)** or
-**(PR)**.
+**(PR)**. So does a job started by anything other than a push or the pull
+request itself, such as **(review)**, **(comment)** or **(manual)**, which is
+usually a bot or an automation at work.
 
 ## Demo
 

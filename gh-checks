@@ -143,7 +143,11 @@ function category(ctx) {
 const EVENTS = {
   push: 'push', pull_request: 'PR', pull_request_target: 'PR target', merge_group: 'merge queue',
   workflow_dispatch: 'manual', schedule: 'scheduled', workflow_run: 'chained', issue_comment: 'comment',
+  pull_request_review: 'review', pull_request_review_comment: 'review comment', repository_dispatch: 'dispatch',
 };
+// A pull request's checks usually run for a push or the pull request itself;
+// any other event (a review, a comment, a manual run) is named on the check.
+const USUAL_EVENTS = new Set(['push', 'pull_request']);
 
 function toPr(node) {
   const contexts = node.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? [];
@@ -166,11 +170,12 @@ function toPr(node) {
   }
   const checks = [...latest.values()];
   // Each check is drawn under its workflow's heading, so its own name is enough,
-  // unless the workflow ran it for more than one event.
+  // unless the workflow ran it for more than one event, or for an unusual one.
   const uses = {};
   for (const c of checks) uses[`${c.wf}\u0000${c.name}`] = (uses[`${c.wf}\u0000${c.name}`] || 0) + 1;
   for (const c of checks) {
-    c.tag = uses[`${c.wf}\u0000${c.name}`] > 1 && c.event ? ` (${EVENTS[c.event] ?? c.event})` : '';
+    const tagged = c.event && (uses[`${c.wf}\u0000${c.name}`] > 1 || !USUAL_EVENTS.has(c.event));
+    c.tag = tagged ? ` (${EVENTS[c.event] ?? c.event})` : '';
     c.label = c.name + c.tag;
   }
   return settle({ number: node.number, title: node.title, url: node.url, draft: node.isDraft, base: node.baseRefName,
@@ -259,8 +264,9 @@ async function detectRepo() {
   }
 }
 
-// --demo reads demo.json, which spells checks as [workflow, name, status]
-// (workflow "" for app checks) and turns them into the API's shape.
+// --demo reads demo.json, which spells checks as [workflow, name, status, event]
+// (workflow "" for app checks, event pull_request when left out) and turns them
+// into the API's shape.
 let demo;
 function demoData() {
   demo ??= JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname, 'demo.json'), 'utf8'));
@@ -274,10 +280,10 @@ function demoNode(pr, repo) {
   const url = `https://github.com/${repo}/pull/${pr.number}`;
   const runIds = [...new Set(pr.checks.map(([wf]) => wf))]; // one run per workflow, as on GitHub
   const minutesAgo = (m) => new Date(Date.now() - m * 60000).toISOString();
-  const contexts = pr.checks.map(([wf, name, status], k) => wf
+  const contexts = pr.checks.map(([wf, name, status, event = 'pull_request'], k) => wf
     ? { __typename: 'CheckRun', name, status: run[status][0], conclusion: run[status][1], detailsUrl: `${url}/checks`,
         startedAt: minutesAgo(4 + ((k * 7) % 19)),
-        completedAt: run[status][0] === 'COMPLETED' ? minutesAgo(1 + ((k * 3) % 4)) : null, checkSuite: { workflowRun: { databaseId: runIds.indexOf(wf) + 1, workflow: { name: wf } } } }
+        completedAt: run[status][0] === 'COMPLETED' ? minutesAgo(1 + ((k * 3) % 4)) : null, checkSuite: { workflowRun: { databaseId: runIds.indexOf(wf) + 1, event, workflow: { name: wf } } } }
     : { __typename: 'StatusContext', context: name, state: app[status], targetUrl: url });
   return { number: pr.number, title: pr.title, url, isDraft: !!pr.draft,
            autoMergeRequest: pr.autoMerge ? { mergeMethod: pr.autoMerge } : null,
