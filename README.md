@@ -57,6 +57,7 @@ anywhere else, it lists them from every repository.
 | `r` | Refresh now |
 | `p` | Show / hide passed and skipped checks |
 | `v` | Switch between the list and table layouts |
+| `s` | Sort by status, failing first, or by most recently updated (the default) |
 | `t` | Switch between light and dark colours |
 | `b` | Try the next background colour (the footer shows the `--bg` to keep it) |
 | `1` `2` `3` | Assigned to me / Authored by me / Review requested |
