@@ -557,13 +557,13 @@ function buildLines(prs, cols, sel, copied = null) {
     const selectedPr = sel && sel.pr === i && sel.check < 0;
     if (selectedPr) cursor = start;
 
-    // The PR cell: a summary icon, the number and wrapped title, then the
-    // counts, then "draft" and "auto-merge" where they apply (squash, the usual
-    // method, goes unsaid).
+    // The PR cell: the number, then the wrapped title led by a summary icon,
+    // then the counts, then "draft" and "auto-merge" where they apply (squash,
+    // the usual method, goes unsaid).
     const prefix = `${multi ? pr.repoName + ' ' : ''}#${pr.number}`;
     const [icon, iconTone] = overall(pr);
-    const indent = 2 + width(prefix) + 2;
-    const titleLines = wrap(pr.title, prW - indent, 3);
+    const indent = width(prefix) + 2;
+    const titleLines = wrap(pr.title, prW - indent - 2, 3);
     const tags = [
       pr.draft && ['draft', T.dim],
       pr.autoMerge && [pr.autoMerge === 'SQUASH' ? 'auto-merge' : `auto-merge (${pr.autoMerge.toLowerCase()})`, T.key],
@@ -573,13 +573,11 @@ function buildLines(prs, cols, sel, copied = null) {
     // gutter is wide enough.
     const justCopied = copied === `${pr.repo}#${pr.number}`;
     const number = sgr(justCopied ? T.pass : T.number, prefix);
-    const gutter = (k) => (justCopied && k === 1 && indent >= 9
-      ? '  ' + sgr(T.pass, 'copied') + ' '.repeat(indent - 8)
-      : ' '.repeat(indent));
+    const gutter = (k) => (justCopied && k === 1 && indent >= 7 ? sgr(T.pass, 'copied') + ' '.repeat(indent - 6) : ' '.repeat(indent));
     const prCell = [
       ...titleLines.map((t, k) => [
-        k === 0 ? `${sgr(iconTone, icon)} ${number}  ${sgr(T.prTitle, t)}` : gutter(k) + sgr(T.prTitle, t),
-        indent + width(t),
+        k === 0 ? `${number}  ${sgr(iconTone, icon)} ${sgr(T.prTitle, t)}` : `${gutter(k)}  ${sgr(T.prTitle, t)}`,
+        indent + 2 + width(t),
       ]),
       [gutter(titleLines.length) + sum.text + tags.map(([text, tone]) => `  ${sgr(tone, text)}`).join(''),
         indent + sum.w + tags.reduce((w, [text]) => w + 2 + width(text), 0)],
@@ -592,7 +590,7 @@ function buildLines(prs, cols, sel, copied = null) {
     for (let r = 0; r < height; r++) {
       const at = lines.length;
       hits[at] = [{ pr: i, check: -1, x0: 0, x1: 2 + prW }];
-      if (r === 0) hits[at].unshift({ pr: i, check: -1, x0: 4, x1: 4 + width(prefix), copy: true });
+      if (r === 0) hits[at].unshift({ pr: i, check: -1, x0: 2, x1: 2 + width(prefix), copy: true });
       const [prText, prTextW] = prCell[r] || ['', 0];
       const prPiece = selectedPr
         ? [2, highlight(prText + ' '.repeat(Math.max(0, prW - prTextW))), prW]

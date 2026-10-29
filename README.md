@@ -81,7 +81,7 @@ copy the number, scroll with the wheel and click a tab to switch sections. Hold 
 
 Checks posted by apps rather than by a workflow appear under **Other checks**.
 
-An icon before each pull request's number sums up its checks: ✗ when a
+An icon at the start of each pull request's title sums up its checks: ✗ when a
 required check failed or was cancelled, ● while any is running or waiting,
 ✓ when all passed.
 
