@@ -491,6 +491,18 @@ function packStatus(pieces, w) {
   return lines;
 }
 
+// One icon for the whole PR: red ✗ when a check failed or was cancelled,
+// orange ● while any is running, queued or expected, green ✓ when all passed
+// or were skipped, grey ○ with no checks. Where the target branch requires
+// checks, only those can turn it red; optional failures stay in the list.
+function overall(pr) {
+  if (!pr.checks.length) return [SYM.skip, T.skip];
+  const counts = pr.hasRequired ? pr.checks.filter((c) => c.required) : pr.checks;
+  if (counts.some((c) => c.cat === 'fail' || c.cat === 'cancel')) return [SYM.fail, T.fail];
+  if (pr.checks.some((c) => c.cat === 'run' || c.cat === 'queue')) return [SYM.run, T.run];
+  return [SYM.pass, T.pass];
+}
+
 // Word-wraps `text` to `w` columns, in at most `max` lines.
 function wrap(text, w, max) {
   const out = [];
@@ -545,24 +557,28 @@ function buildLines(prs, cols, sel, copied = null) {
     const selectedPr = sel && sel.pr === i && sel.check < 0;
     if (selectedPr) cursor = start;
 
-    // The PR cell: number and wrapped title, then the counts, then "draft"
-    // and "auto-merge" where they apply (squash, the usual method, goes unsaid).
+    // The PR cell: a summary icon, the number and wrapped title, then the
+    // counts, then "draft" and "auto-merge" where they apply (squash, the usual
+    // method, goes unsaid).
     const prefix = `${multi ? pr.repoName + ' ' : ''}#${pr.number}`;
-    const indent = width(prefix) + 2;
+    const [icon, iconTone] = overall(pr);
+    const indent = 2 + width(prefix) + 2;
     const titleLines = wrap(pr.title, prW - indent, 3);
     const tags = [
       pr.draft && ['draft', T.dim],
       pr.autoMerge && [pr.autoMerge === 'SQUASH' ? 'auto-merge' : `auto-merge (${pr.autoMerge.toLowerCase()})`, T.key],
     ].filter(Boolean);
     const sum = summary(pr.counts);
-    // Just copied: the "#" turns into a green tick, with "copied" beneath it
-    // where the gutter is wide enough.
+    // Just copied: the number turns green, with "copied" beneath it where the
+    // gutter is wide enough.
     const justCopied = copied === `${pr.repo}#${pr.number}`;
-    const number = justCopied ? sgr(T.pass, prefix.replace('#', '✓')) : sgr(T.number, prefix);
-    const gutter = (k) => (justCopied && k === 1 && indent >= 7 ? sgr(T.pass, 'copied') + ' '.repeat(indent - 6) : ' '.repeat(indent));
+    const number = sgr(justCopied ? T.pass : T.number, prefix);
+    const gutter = (k) => (justCopied && k === 1 && indent >= 9
+      ? '  ' + sgr(T.pass, 'copied') + ' '.repeat(indent - 8)
+      : ' '.repeat(indent));
     const prCell = [
       ...titleLines.map((t, k) => [
-        k === 0 ? `${number}  ${sgr(T.prTitle, t)}` : gutter(k) + sgr(T.prTitle, t),
+        k === 0 ? `${sgr(iconTone, icon)} ${number}  ${sgr(T.prTitle, t)}` : gutter(k) + sgr(T.prTitle, t),
         indent + width(t),
       ]),
       [gutter(titleLines.length) + sum.text + tags.map(([text, tone]) => `  ${sgr(tone, text)}`).join(''),
@@ -576,7 +592,7 @@ function buildLines(prs, cols, sel, copied = null) {
     for (let r = 0; r < height; r++) {
       const at = lines.length;
       hits[at] = [{ pr: i, check: -1, x0: 0, x1: 2 + prW }];
-      if (r === 0) hits[at].unshift({ pr: i, check: -1, x0: 2, x1: 2 + width(prefix), copy: true });
+      if (r === 0) hits[at].unshift({ pr: i, check: -1, x0: 4, x1: 4 + width(prefix), copy: true });
       const [prText, prTextW] = prCell[r] || ['', 0];
       const prPiece = selectedPr
         ? [2, highlight(prText + ' '.repeat(Math.max(0, prW - prTextW))), prW]

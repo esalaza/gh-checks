@@ -81,6 +81,10 @@ copy the number, scroll with the wheel and click a tab to switch sections. Hold 
 
 Checks posted by apps rather than by a workflow appear under **Other checks**.
 
+An icon before each pull request's number sums up its checks: ✗ when a
+required check failed or was cancelled, ● while any is running or waiting,
+✓ when all passed.
+
 Under each pull request's title, after its counts, **draft** marks a draft and
 **auto-merge** one that will merge itself once its checks pass (with the merge
 method when it isn't squash, such as **auto-merge (rebase)**).
