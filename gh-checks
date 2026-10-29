@@ -328,14 +328,14 @@ const THEMES = {
   dark: {
     fail: '1;38;5;203', run: '1;38;5;214', queue: '38;5;221', cancel: '38;5;248',
     pass: '1;38;5;84', skip: '38;5;247',
-    number: '1;38;5;68', repo: '38;5;68', prTitle: '1;38;5;231', title: '38;5;255', dim: '38;5;248', rule: '38;5;239', divider: '38;5;238',
+    number: '1;38;5;68', repo: '38;5;68', prTitle: '1;38;5;231', draftTitle: '38;5;245', title: '38;5;255', dim: '38;5;248', rule: '38;5;239', divider: '38;5;238',
     brand: '1;38;5;213', tabOn: '1;38;5;255;48;5;239', tabOff: '38;5;248',
     selBg: '48;5;237', key: '1;38;5;75', confirm: '1;38;5;221', colHead: '1;38;5;250', bg: '#1c1c21',
   },
   light: {
     fail: '1;38;5;160', run: '1;38;5;166', queue: '1;38;5;130', cancel: '1;38;5;240',
     pass: '1;38;5;28', skip: '1;38;5;243',
-    number: '1;38;5;25', repo: '38;5;25', prTitle: '1;38;5;232', title: '38;5;235', dim: '38;5;242', rule: '38;5;250', divider: '38;5;253',
+    number: '1;38;5;25', repo: '38;5;25', prTitle: '1;38;5;232', draftTitle: '38;5;244', title: '38;5;235', dim: '38;5;242', rule: '38;5;250', divider: '38;5;253',
     brand: '1;38;5;127', tabOn: '1;38;5;235;48;5;252', tabOff: '38;5;242',
     selBg: '48;5;254', key: '1;38;5;25', confirm: '1;38;5;136', colHead: '1;38;5;240', bg: '#f7f7f5',
   },
@@ -577,6 +577,9 @@ function buildLines(prs, cols, sel, copied = null) {
       pr.autoMerge && [pr.autoMerge === 'SQUASH' ? 'auto-merge' : `auto-merge (${pr.autoMerge.toLowerCase()})`, T.key],
     ].filter(Boolean);
     const sum = summary(pr.counts);
+    // A draft's title is grey and not bold, so the pull requests ready for
+    // review stand out.
+    const titleTone = pr.draft ? T.draftTitle : T.prTitle;
     // Just copied: the number turns green, with "copied" beneath it where the
     // gutter is wide enough.
     const justCopied = copied === `${pr.repo}#${pr.number}`;
@@ -584,7 +587,7 @@ function buildLines(prs, cols, sel, copied = null) {
     const gutter = (k) => (justCopied && k === 1 && indent >= 7 ? sgr(T.pass, 'copied') + ' '.repeat(indent - 6) : ' '.repeat(indent));
     const prCell = [
       ...titleLines.map((t, k) => [
-        k === 0 ? `${number}  ${sgr(iconTone, icon)} ${sgr(T.prTitle, t)}` : `${gutter(k)}  ${sgr(T.prTitle, t)}`,
+        k === 0 ? `${number}  ${sgr(iconTone, icon)} ${sgr(titleTone, t)}` : `${gutter(k)}  ${sgr(titleTone, t)}`,
         indent + 2 + width(t),
       ]),
       // The counts and status line up with the title's text, past its icon.
