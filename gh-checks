@@ -97,6 +97,8 @@ query($q: String!) {
         latestReviews(first: 20) { nodes { state author { login } } }
         reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login } ... on Team { name } ... on Bot { login } } } }
         reviewThreads(first: 100) { nodes { isResolved } }
+        stack { size entries(first: 30) { nodes { position pullRequest { number state } } } }
+        stackEntry { position }
         repository { name nameWithOwner }
         commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
           __typename
@@ -185,7 +187,21 @@ function toPr(node) {
                   waitingOn: (node.reviewRequests?.nodes ?? []).map((r) => r.requestedReviewer?.login ?? r.requestedReviewer?.name)
                     .filter(Boolean),
                   unresolved: (node.reviewThreads?.nodes ?? []).filter((t) => !t.isResolved).length,
+                  stack: stackOf(node),
                   repo: node.repository.nameWithOwner, repoName: node.repository.name, checks });
+}
+
+// Where a pull request sits in one of GitHub's stacks: its position (1 on the
+// base branch), the stack's size, and the open pull requests below it,
+// nearest first.
+function stackOf(node) {
+  const position = node.stackEntry?.position;
+  if (!position || !node.stack) return null;
+  const below = (node.stack.entries?.nodes ?? [])
+    .filter((e) => e.position < position && e.pullRequest?.state === 'OPEN')
+    .sort((a, b) => b.position - a.position)
+    .map((e) => e.pullRequest.number);
+  return { position, size: node.stack.size, below };
 }
 
 // Orders a PR's checks (failed first) and counts them by status.
@@ -265,8 +281,8 @@ async function detectRepo() {
 }
 
 // --demo reads demo.json, which spells checks as [workflow, name, status, event]
-// (workflow "" for app checks, event pull_request when left out) and turns them
-// into the API's shape.
+// (workflow "" for app checks, event pull_request when left out) and a stack as
+// its pull request numbers from the base up, and turns them into the API's shape.
 let demo;
 function demoData() {
   demo ??= JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname, 'demo.json'), 'utf8'));
@@ -291,6 +307,9 @@ function demoNode(pr, repo) {
            latestReviews: { nodes: (pr.reviews ?? []).map(([state, login]) => ({ state, author: { login } })) },
            reviewRequests: { nodes: (pr.waitingOn ?? []).map((login) => ({ requestedReviewer: { login } })) },
            reviewThreads: { nodes: Array.from({ length: pr.unresolved ?? 0 }, () => ({ isResolved: false })) },
+           stack: pr.stack ? { size: pr.stack.length, entries: { nodes: pr.stack.map((number, k) =>
+             ({ position: k + 1, pullRequest: { number, state: 'OPEN' } })) } } : null,
+           stackEntry: pr.stack ? { position: pr.stack.indexOf(pr.number) + 1 } : null,
            repository: { name: repo.split('/')[1], nameWithOwner: repo },
            commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: contexts } } } }] } };
 }
@@ -566,8 +585,8 @@ function buildLines(prs, cols, sel, copied = null) {
     if (selectedPr) cursor = start;
 
     // The PR cell: the number, then the wrapped title led by a summary icon,
-    // then the counts, then "draft" and "auto-merge" where they apply (squash,
-    // the usual method, goes unsaid).
+    // then the counts, then "draft", "auto-merge" and "stack" where they apply
+    // (squash, the usual method, goes unsaid).
     const prefix = `${multi ? pr.repoName + ' ' : ''}#${pr.number}`;
     const [icon, iconTone] = overall(pr);
     const indent = width(prefix) + 2;
@@ -575,6 +594,7 @@ function buildLines(prs, cols, sel, copied = null) {
     const tags = [
       pr.draft && ['draft', T.dim],
       pr.autoMerge && [pr.autoMerge === 'SQUASH' ? 'auto-merge' : `auto-merge (${pr.autoMerge.toLowerCase()})`, T.key],
+      pr.stack && [`stack ${pr.stack.position}/${pr.stack.size}`, T.dim],
     ].filter(Boolean);
     const sum = summary(pr.counts);
     // A draft's title is grey and not bold, so the pull requests ready for
@@ -584,7 +604,18 @@ function buildLines(prs, cols, sel, copied = null) {
     // gutter is wide enough.
     const justCopied = copied === `${pr.repo}#${pr.number}`;
     const number = sgr(justCopied ? T.pass : T.number, prefix);
-    const gutter = (k) => (justCopied && k === 1 && indent >= 7 ? sgr(T.pass, 'copied') + ' '.repeat(indent - 6) : ' '.repeat(indent));
+    // A stacked PR lists the open PRs below it under its number, nearest
+    // first, as far as four; "↓ #12" squeezes to "↓#12" in a narrow gutter.
+    const below = pr.stack?.below ?? [];
+    const arrows = (below.length > 4 ? [...below.slice(0, 3).map((n) => `#${n}`), `+${below.length - 3}`] : below.map((n) => `#${n}`))
+      .map((n) => [`↓ ${n}`, `↓${n}`].find((a) => width(a) <= indent + 1))
+      .map((a) => a && [sgr(T.dim, '↓') + sgr(T.repo, a.slice(1)), width(a)]);
+    const gutter = (k) => {
+      if (justCopied && k === 1 && indent >= 7) return sgr(T.pass, 'copied') + ' '.repeat(indent - 6);
+      const [text, w] = arrows[k - 1] ?? ['', 0];
+      return text + ' '.repeat(Math.max(0, indent - w));
+    };
+    const statusLines = packStatus(prStatus(pr), prW - indent - 2);
     const prCell = [
       ...titleLines.map((t, k) => [
         k === 0 ? `${number}  ${sgr(iconTone, icon)} ${sgr(titleTone, t)}` : `${gutter(k)}  ${sgr(titleTone, t)}`,
@@ -593,8 +624,10 @@ function buildLines(prs, cols, sel, copied = null) {
       // The counts and status line up with the title's text, past its icon.
       [`${gutter(titleLines.length)}  ${sum.text}${tags.map(([text, tone]) => `  ${sgr(tone, text)}`).join('')}`,
         indent + 2 + sum.w + tags.reduce((w, [text]) => w + 2 + width(text), 0)],
-      ...packStatus(prStatus(pr), prW - indent - 2).map(([text, w]) => [`${' '.repeat(indent)}  ${text}`, indent + 2 + w]),
+      ...statusLines.map(([text, w], k) => [`${gutter(titleLines.length + 1 + k)}  ${text}`, indent + 2 + w]),
     ];
+    // More PRs below than the cell has lines: give the rest lines of their own.
+    while (prCell.length <= arrows.length) prCell.push([gutter(prCell.length), indent]);
 
     cells[i] = [];
     const prCells = names.map((name) => cellOf(pr, name));

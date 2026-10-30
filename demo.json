@@ -5,6 +5,7 @@
     [
       {
         "number": 482,
+        "stack": [471, 479, 482],
         "mergeState": "BLOCKED",
         "reviewDecision": "CHANGES_REQUESTED",
         "reviews": [["CHANGES_REQUESTED", "ana"]],
@@ -23,6 +24,7 @@
       },
       {
         "number": 479,
+        "stack": [471, 479, 482],
         "mergeState": "BLOCKED",
         "reviewDecision": "REVIEW_REQUIRED",
         "waitingOn": ["ana", "luke"],
@@ -56,6 +58,7 @@
       },
       {
         "number": 471,
+        "stack": [471, 479, 482],
         "mergeState": "CLEAN",
         "reviewDecision": "APPROVED",
         "reviews": [["APPROVED", "ana"]],
@@ -103,6 +106,7 @@
       },
       {
         "number": 482,
+        "stack": [471, 479, 482],
         "mergeState": "BLOCKED",
         "reviewDecision": "CHANGES_REQUESTED",
         "reviews": [["CHANGES_REQUESTED", "ana"]],
