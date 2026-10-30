@@ -127,6 +127,7 @@
     [
       {
         "number": 474,
+        "base": "feat/compare-products",
         "mergeState": "BLOCKED",
         "reviewDecision": "REVIEW_REQUIRED",
         "unresolved": 1,
@@ -143,6 +144,7 @@
       },
       {
         "number": 463,
+        "head": "feat/compare-products",
         "mergeState": "CLEAN",
         "reviewDecision": "APPROVED",
         "reviews": [["APPROVED", "ana"], ["APPROVED", "luke"]],

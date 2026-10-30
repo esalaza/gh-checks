@@ -91,9 +91,12 @@ Under each pull request's title, after its counts, **draft** marks a draft and
 **auto-merge** one that will merge itself once its checks pass (with the merge
 method when it isn't squash, such as **auto-merge (rebase)**).
 
-A pull request in one of GitHub's stacks says where it sits, such as **stack
-2/3** (1 is on the base branch), and lists the open pull requests below it under
-its number, nearest first: **↓ #479**, then **↓ #471**.
+A stacked pull request says where it sits, such as **stack 2/3** (1 is on the
+base branch), and lists the open pull requests below it under its number,
+nearest first: **↓ #479**, then **↓ #471**. That covers GitHub's own stacks and
+hand-made ones, where a pull request's base branch is another open pull
+request's branch. When a hand-made stack branches, its size counts the tallest
+run above each pull request.
 
 A line below that says where the pull request stands: **conflicts**, **behind
 main** or **ready to merge**; who requested changes or approved it, or who it is

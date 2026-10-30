@@ -91,7 +91,7 @@ query($q: String!) {
     issueCount
     nodes {
       ... on PullRequest {
-        number title url isDraft baseRefName
+        number title url isDraft baseRefName headRefName isCrossRepository
         autoMergeRequest { mergeMethod }
         mergeStateStatus reviewDecision
         latestReviews(first: 20) { nodes { state author { login } } }
@@ -181,6 +181,7 @@ function toPr(node) {
     c.label = c.name + c.tag;
   }
   return settle({ number: node.number, title: node.title, url: node.url, draft: node.isDraft, base: node.baseRefName,
+                  head: node.headRefName, fork: !!node.isCrossRepository,
                   autoMerge: node.autoMergeRequest?.mergeMethod ?? null,
                   mergeState: node.mergeStateStatus ?? null, reviewDecision: node.reviewDecision ?? null,
                   reviews: (node.latestReviews?.nodes ?? []).map((r) => ({ state: r.state, by: r.author?.login ?? '?' })),
@@ -202,6 +203,50 @@ function stackOf(node) {
     .sort((a, b) => b.position - a.position)
     .map((e) => e.pullRequest.number);
   return { position, size: node.stack.size, below };
+}
+
+// Hand-made stacks: a pull request whose base branch is another open pull
+// request's head branch sits on it. openByRepo holds each repository's open
+// pull requests as { number, baseRefName, headRefName }. A stack that branches
+// counts its tallest run above each pull request. GitHub's own stacks keep what
+// GitHub says.
+function addBranchStacks(prs, openByRepo) {
+  for (const [repo, open] of Object.entries(openByRepo)) {
+    const byHead = new Map(open.map((p) => [p.headRefName, p]));
+    const onto = new Map(); // branch -> the open pull requests based on it
+    for (const p of open) onto.set(p.baseRefName, [...(onto.get(p.baseRefName) ?? []), p]);
+    const height = (branch, seen) => {
+      if (seen.has(branch)) return 0;
+      seen.add(branch);
+      return Math.max(0, ...(onto.get(branch) ?? []).map((p) => 1 + height(p.headRefName, new Set(seen))));
+    };
+    for (const pr of prs) {
+      if (pr.repo !== repo || pr.stack || pr.fork) continue;
+      const below = [];
+      const seen = new Set([pr.head]);
+      for (let p = byHead.get(pr.base); p && !seen.has(p.headRefName); p = byHead.get(p.baseRefName)) {
+        below.push(p.number);
+        seen.add(p.headRefName);
+      }
+      const above = height(pr.head, new Set());
+      if (below.length || above) pr.stack = { position: below.length + 1, size: below.length + 1 + above, below };
+    }
+  }
+}
+
+// The open pull requests of each repository, newest first, for hand-made
+// stacks: one query for them all.
+async function openPrsByRepo(repos) {
+  if (!repos.length) return {};
+  const query = `{ ${repos.map((repo, i) => {
+    const [owner, name] = repo.split('/');
+    return `r${i}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) {
+      pullRequests(states: OPEN, first: 100, orderBy: { field: UPDATED_AT, direction: DESC }) {
+        nodes { number baseRefName headRefName isCrossRepository } } }`;
+  }).join('\n')} }`;
+  const { data } = JSON.parse(await gh(['api', 'graphql', '-f', `query=${query}`]));
+  return Object.fromEntries(repos.map((repo, i) =>
+    [repo, (data[`r${i}`]?.pullRequests.nodes ?? []).filter((p) => !p.isCrossRepository)]));
 }
 
 // Orders a PR's checks (failed first) and counts them by status.
@@ -281,8 +326,9 @@ async function detectRepo() {
 }
 
 // --demo reads demo.json, which spells checks as [workflow, name, status, event]
-// (workflow "" for app checks, event pull_request when left out) and a stack as
-// its pull request numbers from the base up, and turns them into the API's shape.
+// (workflow "" for app checks, event pull_request when left out), a GitHub stack
+// as its pull request numbers from the base up, and a hand-made one as branches
+// (base defaults to main), and turns them into the API's shape.
 let demo;
 function demoData() {
   demo ??= JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname, 'demo.json'), 'utf8'));
@@ -302,6 +348,7 @@ function demoNode(pr, repo) {
         completedAt: run[status][0] === 'COMPLETED' ? minutesAgo(1 + ((k * 3) % 4)) : null, checkSuite: { workflowRun: { databaseId: runIds.indexOf(wf) + 1, event, workflow: { name: wf } } } }
     : { __typename: 'StatusContext', context: name, state: app[status], targetUrl: url });
   return { number: pr.number, title: pr.title, url, isDraft: !!pr.draft,
+           baseRefName: pr.base ?? 'main', headRefName: pr.head ?? `pr-${pr.number}`,
            autoMergeRequest: pr.autoMerge ? { mergeMethod: pr.autoMerge } : null,
            mergeStateStatus: pr.mergeState ?? 'BLOCKED', reviewDecision: pr.reviewDecision ?? 'REVIEW_REQUIRED',
            latestReviews: { nodes: (pr.reviews ?? []).map(([state, login]) => ({ state, author: { login } })) },
@@ -319,13 +366,19 @@ async function fetchPrs(section) {
     const { repo, sections } = demoData();
     const prs = sections[SECTIONS.indexOf(section)].map((pr) => toPr(demoNode(pr, repo)));
     for (const pr of prs) markRequired(pr, new Set(demoData().required ?? []));
+    const open = new Map(sections.flat().map((pr) => [pr.number, demoNode(pr, repo)]));
+    addBranchStacks(prs, { [repo]: [...open.values()] });
     return { total: prs.length, prs };
   }
   const q = `is:pr is:open archived:false sort:updated-desc ${section.qualifiers}` +
     (opts.repo ? ` repo:${opts.repo}` : '');
   const { data } = JSON.parse(await gh(['api', 'graphql', '-f', `q=${q}`, '-f', `query=${QUERY}`]));
   const prs = data.search.nodes.filter((n) => n.number).map(toPr);
-  return { total: data.search.issueCount, prs: await addExpectedChecks(prs) };
+  // Without the open pull requests, hand-made stacks just go unshown.
+  const repos = [...new Set(prs.filter((pr) => !pr.stack && !pr.fork).map((pr) => pr.repo))];
+  const [withExpected, open] = await Promise.all([addExpectedChecks(prs), openPrsByRepo(repos).catch(() => ({}))]);
+  addBranchStacks(withExpected, open);
+  return { total: data.search.issueCount, prs: withExpected };
 }
 
 // ---------------------------------------------------------------- drawing
