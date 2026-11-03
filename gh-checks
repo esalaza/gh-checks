@@ -59,7 +59,8 @@ Mouse:
   Hold Option (macOS terminals) or Shift (most others) to select text.
 
 Symbols: ✗ failed  ● running  ○ queued (yellow)  ⊘ cancelled  ✓ passed  ○ skipped (grey)
-         ⚿ (a padlock with a Nerd Font) the branch needs a code owner's approval
+         ⚿ (a shield with a padlock in a Nerd Font) a code owner whose approval
+           the branch needs
 `;
 
 const opts = { repo: '', all: false, interval: 30, hidePassed: true, mouse: true, theme: '', demo: false, bg: '', layout: 'list',
@@ -103,7 +104,7 @@ query($q: String!) {
         autoMergeRequest { mergeMethod }
         mergeStateStatus reviewDecision
         reviews(last: 100, states: [APPROVED, CHANGES_REQUESTED, DISMISSED]) { nodes { state author { login } } }
-        reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login } ... on Team { name } ... on Bot { login } } } }
+        reviewRequests(first: 10) { nodes { asCodeOwner requestedReviewer { ... on User { login } ... on Team { name } ... on Bot { login } } } }
         reviewThreads(first: 100) { nodes { isResolved } }
         stack { size entries(first: 30) { nodes { position pullRequest { number state } } } }
         stackEntry { position }
@@ -193,8 +194,9 @@ function toPr(node) {
                   autoMerge: node.autoMergeRequest?.mergeMethod ?? null,
                   mergeState: node.mergeStateStatus ?? null, reviewDecision: node.reviewDecision ?? null,
                   reviews: standingReviews(node.reviews?.nodes ?? []),
-                  waitingOn: (node.reviewRequests?.nodes ?? []).map((r) => r.requestedReviewer?.login ?? r.requestedReviewer?.name)
-                    .filter(Boolean),
+                  waitingOn: (node.reviewRequests?.nodes ?? [])
+                    .map((r) => ({ name: r.requestedReviewer?.login ?? r.requestedReviewer?.name, codeOwner: !!r.asCodeOwner }))
+                    .filter((r) => r.name),
                   unresolved: (node.reviewThreads?.nodes ?? []).filter((t) => !t.isResolved).length,
                   stack: stackOf(node),
                   repo: node.repository.nameWithOwner, repoName: node.repository.name, checks });
@@ -377,7 +379,8 @@ function demoNode(pr, repo) {
            autoMergeRequest: pr.autoMerge ? { mergeMethod: pr.autoMerge } : null,
            mergeStateStatus: pr.mergeState ?? 'BLOCKED', reviewDecision: pr.reviewDecision ?? 'REVIEW_REQUIRED',
            reviews: { nodes: (pr.reviews ?? []).map(([state, login]) => ({ state, author: { login } })) },
-           reviewRequests: { nodes: (pr.waitingOn ?? []).map((login) => ({ requestedReviewer: { login } })) },
+           reviewRequests: { nodes: (pr.waitingOn ?? []).map((login) =>
+             ({ asCodeOwner: (pr.codeOwnerRequests ?? []).includes(login), requestedReviewer: { login } })) },
            reviewThreads: { nodes: Array.from({ length: pr.unresolved ?? 0 }, () => ({ isResolved: false })) },
            stack: pr.stack ? { size: pr.stack.length, entries: { nodes: pr.stack.map((number, k) =>
              ({ position: k + 1, pullRequest: { number, state: 'OPEN' } })) } } : null,
@@ -441,7 +444,7 @@ function nerdFontInstalled() {
 }
 const envNerd = process.env.GH_CHECKS_NERD_FONT;
 const nerdFont = opts.nerdFont ?? (envNerd ? envNerd !== '0' : nerdFontInstalled());
-const ICONS = nerdFont ? { lock: '\uf023' } : { lock: '⚿' };
+const ICONS = nerdFont ? { codeOwner: '\u{f099d}' } : { codeOwner: '⚿' }; // a shield with a padlock
 
 // 256-colour palettes (every macOS terminal supports them), tuned for a dark
 // or a light background.
@@ -591,7 +594,6 @@ function prStatus(pr) {
   }[pr.mergeState];
   if (merge && !pr.draft) out.push(merge);
   const by = (state) => [...new Set(pr.reviews.filter((r) => r.state === state).map((r) => r.by))].join(', ');
-  const reviewAt = out.length;
   // Requested changes and approvals both show, as reviewers can disagree.
   const changes = pr.reviewDecision === 'CHANGES_REQUESTED' || by('CHANGES_REQUESTED');
   if (changes) out.push([`changes requested${by('CHANGES_REQUESTED') ? ` by ${by('CHANGES_REQUESTED')}` : ''}`, T.fail]);
@@ -599,12 +601,12 @@ function prStatus(pr) {
   if (!changes && !by('APPROVED') && pr.reviewDecision === 'REVIEW_REQUIRED' && !pr.waitingOn.length && !pr.draft) {
     out.push(['review required', T.queue]);
   }
-  if (pr.waitingOn.length) out.push([`waiting on ${pr.waitingOn.join(', ')}`, T.queue]);
-  // A padlock leads the review part while the branch still needs a code
-  // owner's approval (GitHub says APPROVED only once it has one).
-  if (pr.codeOwners && pr.reviewDecision !== 'APPROVED' && out[reviewAt]) {
-    out[reviewAt] = [`${ICONS.lock} ${out[reviewAt][0]}`, out[reviewAt][1]];
-  }
+  // Code owners still to review come first, marked, when the branch needs one
+  // of them to approve; GitHub drops their request once they have reviewed.
+  const owner = (r) => pr.codeOwners && r.codeOwner;
+  const waiting = [...pr.waitingOn.filter(owner).map((r) => `${ICONS.codeOwner} ${r.name}`),
+                   ...pr.waitingOn.filter((r) => !owner(r)).map((r) => r.name)];
+  if (waiting.length) out.push([`waiting on ${waiting.join(', ')}`, T.queue]);
   if (pr.unresolved) out.push([`${pr.unresolved} unresolved`, T.queue]);
   return out;
 }

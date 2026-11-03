@@ -41,7 +41,7 @@ anywhere else, it lists them from every repository.
 | `--list`, `--table` | Each PR's checks as one list ordered by status, with their timing and workflow beside them ("started 3m ago", "failed after 2m"; the default), or as a table with a column per workflow |
 | `--no-mouse` | Leave the mouse to the terminal, for normal text selection |
 | `--light`, `--dark` | Light colours on a paper background (the default), or dark colours on charcoal |
-| `--nerd-font`, `--no-nerd-font` | Draw icons such as the padlock from a [Nerd Font](https://www.nerdfonts.com/) (the fonts Powerlevel10k uses), or as plain Unicode stand-ins (⚿). By default a Nerd Font is used when one is installed; `GH_CHECKS_NERD_FONT=1` or `0` in your shell profile also decides |
+| `--nerd-font`, `--no-nerd-font` | Draw icons such as the code-owner shield from a [Nerd Font](https://www.nerdfonts.com/) (the fonts Powerlevel10k uses), or as plain Unicode stand-ins (⚿). By default a Nerd Font is used when one is installed; `GH_CHECKS_NERD_FONT=1` or `0` in your shell profile also decides |
 | `--bg COLOUR` | Window background while the dashboard runs, as `#rrggbb`, or `none` to keep the terminal's. Defaults to paper `#f7f7f5` with the light colours and charcoal `#1c1c21` with the dark ones. Needs a terminal that supports it (iTerm2, Ghostty, kitty, VS Code); others keep their own |
 
 ### Keys
@@ -103,9 +103,10 @@ run above each pull request.
 
 A line below that says where the pull request stands: **conflicts**, **behind
 main** or **ready to merge**; who requested changes and who approved it, or who it is
-**waiting on**; and how many review comments are **unresolved**. A padlock
-leads the review part while the target branch still needs a code owner's
-approval.
+**waiting on**; and how many review comments are **unresolved**. When the
+target branch needs a code owner's approval, the code owners still to review
+come first in **waiting on**, marked with a shield and padlock (⚿ without a
+Nerd Font).
 
 A check's name is faint when the target branch doesn't require it, so the
 failures that block merging stand out.

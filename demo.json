@@ -29,6 +29,7 @@
         "mergeState": "BLOCKED",
         "reviewDecision": "REVIEW_REQUIRED",
         "waitingOn": ["ana", "luke"],
+        "codeOwnerRequests": ["luke"],
         "autoMerge": "SQUASH",
         "title": "feat: add saved addresses to the checkout form",
         "checks": [
@@ -46,6 +47,7 @@
         "mergeState": "DIRTY",
         "reviewDecision": "REVIEW_REQUIRED",
         "waitingOn": ["luke"],
+        "codeOwnerRequests": ["luke"],
         "title": "chore: upgrade the router to v7",
         "checks": [
           ["ci: build", "lint", "pass"], ["ci: build", "typecheck", "fail"],
