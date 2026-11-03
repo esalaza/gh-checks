@@ -82,6 +82,8 @@ copy the number, scroll with the wheel and click a tab to switch sections. Hold 
 
 Checks posted by apps rather than by a workflow appear under **Other checks**.
 
+The **Pull requests** heading counts them, such as **(4 ready, 1 draft)**.
+
 An icon at the start of each pull request's title sums up its checks: ✗ when a
 required check failed or was cancelled, ● while any is running or waiting,
 ✓ when all passed.

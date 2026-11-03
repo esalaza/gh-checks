@@ -622,7 +622,12 @@ function buildLines(prs, cols, sel, copied = null) {
   }
   const xs = [];
   widths.reduce((x, w) => (xs.push(x), x + w + GAP), 2 + prW + GAP);
-  const heading = row([[2, sgr(T.colHead, 'Pull request'), 12], ...labels.map((label, j) => {
+  // The PR heading counts the pull requests: "(4 ready, 1 draft)".
+  const drafts = prs.filter((pr) => pr.draft).length;
+  const draftText = drafts && `${drafts} draft${drafts > 1 ? 's' : ''}`;
+  let count = prs.length ? ` (${[`${prs.length - drafts} ready`, draftText].filter(Boolean).join(', ')})` : '';
+  if (13 + width(count) > prW) count = ` (${prs.length}${drafts ? `, ${draftText}` : ''})`;
+  const heading = row([[2, sgr(T.colHead, 'Pull requests') + sgr(T.dim, count), 13 + width(count)], ...labels.map((label, j) => {
     const text = fit(label, widths[j]);
     return [xs[j], sgr(T.colHead, text), width(text)];
   })]);
