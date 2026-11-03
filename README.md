@@ -102,7 +102,7 @@ request's branch. When a hand-made stack branches, its size counts the tallest
 run above each pull request.
 
 A line below that says where the pull request stands: **conflicts**, **behind
-main** or **ready to merge**; who requested changes or approved it, or who it is
+main** or **ready to merge**; who requested changes and who approved it, or who it is
 **waiting on**; and how many review comments are **unresolved**. A padlock
 leads the review part while the target branch still needs a code owner's
 approval.

@@ -9,7 +9,7 @@
         "stack": [471, 479, 482],
         "mergeState": "BLOCKED",
         "reviewDecision": "CHANGES_REQUESTED",
-        "reviews": [["CHANGES_REQUESTED", "ana"]],
+        "reviews": [["APPROVED", "luke"], ["CHANGES_REQUESTED", "ana"]],
         "unresolved": 2,
         "title": "fix: keep the cart total in sync after a coupon is removed",
         "checks": [
@@ -110,7 +110,7 @@
         "stack": [471, 479, 482],
         "mergeState": "BLOCKED",
         "reviewDecision": "CHANGES_REQUESTED",
-        "reviews": [["CHANGES_REQUESTED", "ana"]],
+        "reviews": [["APPROVED", "luke"], ["CHANGES_REQUESTED", "ana"]],
         "unresolved": 2,
         "title": "fix: keep the cart total in sync after a coupon is removed",
         "checks": [

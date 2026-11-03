@@ -102,7 +102,7 @@ query($q: String!) {
         number title url isDraft baseRefName headRefName isCrossRepository
         autoMergeRequest { mergeMethod }
         mergeStateStatus reviewDecision
-        latestReviews(first: 20) { nodes { state author { login } } }
+        reviews(last: 100, states: [APPROVED, CHANGES_REQUESTED, DISMISSED]) { nodes { state author { login } } }
         reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login } ... on Team { name } ... on Bot { login } } } }
         reviewThreads(first: 100) { nodes { isResolved } }
         stack { size entries(first: 30) { nodes { position pullRequest { number state } } } }
@@ -192,12 +192,21 @@ function toPr(node) {
                   head: node.headRefName, fork: !!node.isCrossRepository,
                   autoMerge: node.autoMergeRequest?.mergeMethod ?? null,
                   mergeState: node.mergeStateStatus ?? null, reviewDecision: node.reviewDecision ?? null,
-                  reviews: (node.latestReviews?.nodes ?? []).map((r) => ({ state: r.state, by: r.author?.login ?? '?' })),
+                  reviews: standingReviews(node.reviews?.nodes ?? []),
                   waitingOn: (node.reviewRequests?.nodes ?? []).map((r) => r.requestedReviewer?.login ?? r.requestedReviewer?.name)
                     .filter(Boolean),
                   unresolved: (node.reviewThreads?.nodes ?? []).filter((t) => !t.isResolved).length,
                   stack: stackOf(node),
                   repo: node.repository.nameWithOwner, repoName: node.repository.name, checks });
+}
+
+// Each reviewer's latest approval or change request, oldest first. A comment
+// after a change request leaves it standing (GitHub's latestReviews would show
+// only the comment), and a dismissal withdraws it.
+function standingReviews(reviews) {
+  const latest = new Map();
+  for (const r of reviews) latest.set(r.author?.login ?? '?', r.state);
+  return [...latest].filter(([, state]) => state !== 'DISMISSED').map(([by, state]) => ({ state, by }));
 }
 
 // Where a pull request sits in one of GitHub's stacks: its position (1 on the
@@ -367,7 +376,7 @@ function demoNode(pr, repo) {
            baseRefName: pr.base ?? 'main', headRefName: pr.head ?? `pr-${pr.number}`,
            autoMergeRequest: pr.autoMerge ? { mergeMethod: pr.autoMerge } : null,
            mergeStateStatus: pr.mergeState ?? 'BLOCKED', reviewDecision: pr.reviewDecision ?? 'REVIEW_REQUIRED',
-           latestReviews: { nodes: (pr.reviews ?? []).map(([state, login]) => ({ state, author: { login } })) },
+           reviews: { nodes: (pr.reviews ?? []).map(([state, login]) => ({ state, author: { login } })) },
            reviewRequests: { nodes: (pr.waitingOn ?? []).map((login) => ({ requestedReviewer: { login } })) },
            reviewThreads: { nodes: Array.from({ length: pr.unresolved ?? 0 }, () => ({ isResolved: false })) },
            stack: pr.stack ? { size: pr.stack.length, entries: { nodes: pr.stack.map((number, k) =>
@@ -583,11 +592,11 @@ function prStatus(pr) {
   if (merge && !pr.draft) out.push(merge);
   const by = (state) => [...new Set(pr.reviews.filter((r) => r.state === state).map((r) => r.by))].join(', ');
   const reviewAt = out.length;
-  if (pr.reviewDecision === 'CHANGES_REQUESTED' || by('CHANGES_REQUESTED')) {
-    out.push([`changes requested${by('CHANGES_REQUESTED') ? ` by ${by('CHANGES_REQUESTED')}` : ''}`, T.fail]);
-  } else if (by('APPROVED')) {
-    out.push([`approved by ${by('APPROVED')}`, T.pass]);
-  } else if (pr.reviewDecision === 'REVIEW_REQUIRED' && !pr.waitingOn.length && !pr.draft) {
+  // Requested changes and approvals both show, as reviewers can disagree.
+  const changes = pr.reviewDecision === 'CHANGES_REQUESTED' || by('CHANGES_REQUESTED');
+  if (changes) out.push([`changes requested${by('CHANGES_REQUESTED') ? ` by ${by('CHANGES_REQUESTED')}` : ''}`, T.fail]);
+  if (by('APPROVED')) out.push([`approved by ${by('APPROVED')}`, T.pass]);
+  if (!changes && !by('APPROVED') && pr.reviewDecision === 'REVIEW_REQUIRED' && !pr.waitingOn.length && !pr.draft) {
     out.push(['review required', T.queue]);
   }
   if (pr.waitingOn.length) out.push([`waiting on ${pr.waitingOn.join(', ')}`, T.queue]);
