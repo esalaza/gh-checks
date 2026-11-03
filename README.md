@@ -90,9 +90,10 @@ required check failed or was cancelled, ● while any is running or waiting,
 ✓ when all passed.
 
 A draft's title is grey, so the pull requests ready for review stand out.
-Under each pull request's title, after its counts, **draft** marks a draft and
-**auto-merge** one that will merge itself once its checks pass (with the merge
-method when it isn't squash, such as **auto-merge (rebase)**).
+Under each pull request's title, its counts are followed by whether it can
+merge (**conflicts**, **behind main** or **ready to merge**), then **draft** for
+a draft and **auto-merge** for one that will merge itself once its checks pass
+(with the merge method when it isn't squash, such as **auto-merge (rebase)**).
 
 A stacked pull request says where it sits, such as **stack 2/3** (1 is on the
 base branch), and lists the open pull requests below it under its number,
@@ -101,9 +102,9 @@ hand-made ones, where a pull request's base branch is another open pull
 request's branch. When a hand-made stack branches, its size counts the tallest
 run above each pull request.
 
-A line below that says where the pull request stands: **conflicts**, **behind
-main** or **ready to merge**; who requested changes and who approved it, or who it is
-**waiting on**; and how many review comments are **unresolved**. When the
+The lines below that are about reviews: who requested changes and who approved
+it, or who it is **waiting on**, and how many review comments are
+**unresolved**. When the
 target branch needs a code owner's approval and one has still to review, the
 **waiting on** list leads with a shield and padlock (⚿ without a Nerd Font) and
 names the code owners first.

@@ -586,13 +586,18 @@ function row(pieces) {
 // "conflicts", "behind main", "ready to merge", "changes requested by ana",
 // "approved by luke", "waiting on ana, luke", "3 unresolved". "Blocked" goes
 // unsaid, as the checks and review state already explain it.
-function prStatus(pr) {
-  const out = [];
-  const merge = {
+// Whether the PR can merge, for its counts line: "conflicts", "behind main"
+// or "ready to merge", as [text, tone]; nothing for a draft or while blocked.
+function mergeStatus(pr) {
+  if (pr.draft) return null;
+  return {
     DIRTY: ['conflicts', T.fail], BEHIND: [`behind ${pr.base || 'base'}`, T.queue],
     CLEAN: ['ready to merge', T.pass], HAS_HOOKS: ['ready to merge', T.pass], UNSTABLE: ['ready to merge', T.pass],
-  }[pr.mergeState];
-  if (merge && !pr.draft) out.push(merge);
+  }[pr.mergeState] ?? null;
+}
+
+function prStatus(pr) {
+  const out = [];
   const by = (state) => [...new Set(pr.reviews.filter((r) => r.state === state).map((r) => r.by))].join(', ');
   // Requested changes and approvals both show, as reviewers can disagree.
   const changes = pr.reviewDecision === 'CHANGES_REQUESTED' || by('CHANGES_REQUESTED');
@@ -613,9 +618,10 @@ function prStatus(pr) {
 }
 
 // Packs coloured [text, tone] pieces into lines of at most `w` columns, two
-// spaces apart, as [line, visible width] pairs.
-function packStatus(pieces, w) {
-  const lines = [];
+// spaces apart, as [line, visible width] pairs, after an already coloured
+// [line, width] to start from, if given.
+function packStatus(pieces, w, start = null) {
+  const lines = start ? [[...start]] : [];
   for (const [raw, tone] of pieces) {
     const text = fit(raw, w);
     const last = lines[lines.length - 1];
@@ -731,16 +737,18 @@ function buildLines(prs, cols, sel, copied = null) {
       const [text, w] = arrows[k - 1] ?? ['', 0];
       return text + ' '.repeat(Math.max(0, indent - w));
     };
-    const statusLines = packStatus(prStatus(pr), prW - indent - 2);
+    // The counts line carries whether the PR can merge and its tags; the
+    // status lines below it are about reviews.
+    const textW = prW - indent - 2;
+    const countLines = packStatus([mergeStatus(pr), ...tags].filter(Boolean), textW, [sum.text, sum.w]);
+    const statusLines = [...countLines, ...packStatus(prStatus(pr), textW)];
     const prCell = [
       ...titleLines.map((t, k) => [
         k === 0 ? `${number}  ${sgr(iconTone, icon)} ${sgr(titleTone, t)}` : `${gutter(k)}  ${sgr(titleTone, t)}`,
         indent + 2 + width(t),
       ]),
       // The counts and status line up with the title's text, past its icon.
-      [`${gutter(titleLines.length)}  ${sum.text}${tags.map(([text, tone]) => `  ${sgr(tone, text)}`).join('')}`,
-        indent + 2 + sum.w + tags.reduce((w, [text]) => w + 2 + width(text), 0)],
-      ...statusLines.map(([text, w], k) => [`${gutter(titleLines.length + 1 + k)}  ${text}`, indent + 2 + w]),
+      ...statusLines.map(([text, w], k) => [`${gutter(titleLines.length + k)}  ${text}`, indent + 2 + w]),
     ];
     // More PRs below than the cell has lines: give the rest lines of their own.
     while (prCell.length <= arrows.length) prCell.push([gutter(prCell.length), indent]);
