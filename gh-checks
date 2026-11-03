@@ -347,9 +347,17 @@ async function detectRepo() {
   if (opts.repo || opts.all) return;
   try {
     opts.repo = (await gh(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'])).trim();
+    opts.repoFromFolder = !!opts.repo;
   } catch {
     // Not in a GitHub repo: list every repo.
   }
+}
+
+// What an empty section says: where it looked, and how to look everywhere
+// when the repo came from the current folder.
+function noPrsMessage() {
+  if (!opts.repo) return 'No open pull requests.';
+  return `No open pull requests in ${opts.repo}.` + (opts.repoFromFolder ? ' Run with --all for every repo.' : '');
 }
 
 // --demo reads demo.json, which spells checks as [workflow, name, status, event]
@@ -815,7 +823,7 @@ if (!tty) {
     ({ total, prs }) => {
       const { lines, heading } = buildLines(prs, process.stdout.columns || Number(process.env.COLUMNS) || 160, null);
       if (prs.length) lines.unshift(heading, '');
-      if (!prs.length) lines.push('No open pull requests.');
+      if (!prs.length) lines.push(noPrsMessage());
       else if (total > prs.length) lines.push(`Showing ${prs.length} of ${total} pull requests.`);
       process.stdout.write(lines.join('\n') + '\n');
     },
@@ -1031,7 +1039,7 @@ function render() {
   let heading = '';
   state.hits = [];
   if (!data) body = [sgr(T.dim, state.error ? '' : ' Loading…')];
-  else if (!list.length) body = [sgr(T.dim, ' No open pull requests.')];
+  else if (!list.length) body = [sgr(T.dim, ` ${noPrsMessage()}`)];
   else {
     const built = buildLines(list, cols, { pr: state.pr, check: state.check },
       state.copied?.until > Date.now() ? state.copied.key : null);
