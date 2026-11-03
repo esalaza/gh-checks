@@ -6,6 +6,8 @@ Output demo.gif
 Require node
 
 Set Shell "bash"
+# VHS draws with its own font, which has no Nerd Font icons.
+Env GH_CHECKS_NERD_FONT "0"
 Set FontSize 15
 Set Width 1600
 Set Height 680

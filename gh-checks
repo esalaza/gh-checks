@@ -6,7 +6,7 @@
 const { execFile } = require('node:child_process');
 
 const HELP = `Usage: gh checks [-R owner/repo | --all] [-i seconds] [--show-passed] [--no-mouse]
-                 [--light | --dark]
+                 [--light | --dark] [--nerd-font | --no-nerd-font]
 
 A live dashboard of your open pull requests with every CI check shown.
 Re-runs supersede earlier attempts, so a running re-run shows as running
@@ -25,6 +25,11 @@ rather than as the old failure. Piped output prints the list once.
                         colours on charcoal; t switches between them as it runs
       --bg COLOUR       background while the dashboard runs, as #rrggbb, or
                         "none" to keep the terminal's; b tries others as it runs
+      --nerd-font, --no-nerd-font
+                        draw icons from a Nerd Font (as Powerlevel10k does), or
+                        plain Unicode stand-ins. By default a Nerd Font is used
+                        when one is installed; GH_CHECKS_NERD_FONT=1 or 0 also
+                        decides
   -h, --help            show this help
 
 Keys:
@@ -54,9 +59,11 @@ Mouse:
   Hold Option (macOS terminals) or Shift (most others) to select text.
 
 Symbols: ✗ failed  ● running  ○ queued (yellow)  ⊘ cancelled  ✓ passed  ○ skipped (grey)
+         ⚿ (a padlock with a Nerd Font) the branch needs a code owner's approval
 `;
 
-const opts = { repo: '', all: false, interval: 30, hidePassed: true, mouse: true, theme: '', demo: false, bg: '', layout: 'list' };
+const opts = { repo: '', all: false, interval: 30, hidePassed: true, mouse: true, theme: '', demo: false, bg: '', layout: 'list',
+               nerdFont: null };
 const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
@@ -70,6 +77,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '--table' || a === '--list') opts.layout = a.slice(2);
   else if (a === '--demo') opts.demo = true; // made-up data from demo.json, for screenshots
   else if (a === '--light' || a === '--dark') opts.theme = a.slice(2);
+  else if (a === '--nerd-font' || a === '--no-nerd-font') opts.nerdFont = a === '--nerd-font';
   else if (a === '-h' || a === '--help') {
     process.stdout.write(HELP);
     process.exit(0);
@@ -260,29 +268,36 @@ function settle(pr) {
 // The checks a branch requires before merging, from its rulesets and any
 // classic branch protection, kept for ten minutes as they rarely change.
 const requiredCache = new Map();
-async function requiredChecks(repo, branch) {
+// What a branch's rules and protection ask of a pull request into it: the
+// checks it requires by name, and whether a code owner must approve.
+async function branchRules(repo, branch) {
   const key = `${repo}:${branch}`;
   const hit = requiredCache.get(key);
-  if (hit && Date.now() - hit.at < 600000) return hit.names;
-  const names = new Set();
+  if (hit && Date.now() - hit.at < 600000) return hit.rules;
+  const rules = { checks: new Set(), codeOwners: false };
   const ref = encodeURIComponent(branch);
-  try {
-    for (const rule of JSON.parse(await gh(['api', `repos/${repo}/rules/branches/${ref}`]))) {
-      if (rule.type === 'required_status_checks') {
-        for (const c of rule.parameters?.required_status_checks ?? []) names.add(c.context);
-      }
+  const api = async (path) => {
+    try {
+      return JSON.parse(await gh(['api', path]));
+    } catch {
+      return null; // no rules, not protected, or no access
     }
-  } catch {
-    // No rules, or no access to them.
+  };
+  const [ruleset, classicChecks, classicReviews] = await Promise.all([
+    api(`repos/${repo}/rules/branches/${ref}`),
+    api(`repos/${repo}/branches/${ref}/protection/required_status_checks`),
+    api(`repos/${repo}/branches/${ref}/protection/required_pull_request_reviews`),
+  ]);
+  for (const rule of ruleset ?? []) {
+    if (rule.type === 'required_status_checks') {
+      for (const c of rule.parameters?.required_status_checks ?? []) rules.checks.add(c.context);
+    }
+    if (rule.type === 'pull_request' && rule.parameters?.require_code_owner_review) rules.codeOwners = true;
   }
-  try {
-    const classic = JSON.parse(await gh(['api', `repos/${repo}/branches/${ref}/protection/required_status_checks`]));
-    for (const c of classic.contexts ?? []) names.add(c);
-  } catch {
-    // Not protected.
-  }
-  requiredCache.set(key, { at: Date.now(), names });
-  return names;
+  for (const c of classicChecks?.contexts ?? []) rules.checks.add(c);
+  if (classicReviews?.require_code_owner_reviews) rules.codeOwners = true;
+  requiredCache.set(key, { at: Date.now(), rules });
+  return rules;
 }
 
 // GitHub lists a required check as "Expected" until its job reports, which can
@@ -300,7 +315,8 @@ async function addExpectedChecks(prs) {
   for (const pr of prs) for (const c of pr.checks) if (c.wf) workflowOf.set(c.name, c.wf);
   await Promise.all(prs.map(async (pr) => {
     if (!pr.base) return;
-    const required = await requiredChecks(pr.repo, pr.base);
+    const { checks: required, codeOwners } = await branchRules(pr.repo, pr.base);
+    pr.codeOwners = codeOwners;
     markRequired(pr, required);
     const reported = new Set(pr.checks.map((c) => c.name));
     const missing = [...required].filter((name) => !reported.has(name));
@@ -365,7 +381,10 @@ async function fetchPrs(section) {
   if (opts.demo) {
     const { repo, sections } = demoData();
     const prs = sections[SECTIONS.indexOf(section)].map((pr) => toPr(demoNode(pr, repo)));
-    for (const pr of prs) markRequired(pr, new Set(demoData().required ?? []));
+    for (const pr of prs) {
+      markRequired(pr, new Set(demoData().required ?? []));
+      pr.codeOwners = !!demoData().codeOwners;
+    }
     const open = new Map(sections.flat().map((pr) => [pr.number, demoNode(pr, repo)]));
     addBranchStacks(prs, { [repo]: [...open.values()] });
     return { total: prs.length, prs };
@@ -393,6 +412,27 @@ const highlight = (s) =>
 const width = (s) => [...s].length;
 const fit = (s, w) => (width(s) > w ? [...s].slice(0, Math.max(0, w - 1)).join('') + '…' : s);
 const pad = (s, w) => s + ' '.repeat(Math.max(0, w - width(s)));
+
+// Icons from a Nerd Font (the patched fonts Powerlevel10k and others use), with
+// plain Unicode stand-ins for terminals without one. A terminal can't say which
+// font it draws with, so an installed Nerd Font is taken to be the one in use.
+function nerdFontInstalled() {
+  const fs = require('node:fs');
+  const home = require('node:os').homedir();
+  const dirs = [`${home}/Library/Fonts`, '/Library/Fonts', `${home}/.local/share/fonts`, `${home}/.fonts`,
+                '/usr/share/fonts', '/usr/local/share/fonts'];
+  return dirs.some((dir) => {
+    try {
+      return fs.readdirSync(dir, { recursive: dir.startsWith(home) && !dir.endsWith('Library/Fonts') })
+        .some((name) => /nerd ?font/i.test(String(name)));
+    } catch {
+      return false;
+    }
+  });
+}
+const envNerd = process.env.GH_CHECKS_NERD_FONT;
+const nerdFont = opts.nerdFont ?? (envNerd ? envNerd !== '0' : nerdFontInstalled());
+const ICONS = nerdFont ? { lock: '\uf023' } : { lock: '⚿' };
 
 // 256-colour palettes (every macOS terminal supports them), tuned for a dark
 // or a light background.
@@ -542,6 +582,7 @@ function prStatus(pr) {
   }[pr.mergeState];
   if (merge && !pr.draft) out.push(merge);
   const by = (state) => [...new Set(pr.reviews.filter((r) => r.state === state).map((r) => r.by))].join(', ');
+  const reviewAt = out.length;
   if (pr.reviewDecision === 'CHANGES_REQUESTED' || by('CHANGES_REQUESTED')) {
     out.push([`changes requested${by('CHANGES_REQUESTED') ? ` by ${by('CHANGES_REQUESTED')}` : ''}`, T.fail]);
   } else if (by('APPROVED')) {
@@ -550,6 +591,11 @@ function prStatus(pr) {
     out.push(['review required', T.queue]);
   }
   if (pr.waitingOn.length) out.push([`waiting on ${pr.waitingOn.join(', ')}`, T.queue]);
+  // A padlock leads the review part while the branch still needs a code
+  // owner's approval (GitHub says APPROVED only once it has one).
+  if (pr.codeOwners && pr.reviewDecision !== 'APPROVED' && out[reviewAt]) {
+    out[reviewAt] = [`${ICONS.lock} ${out[reviewAt][0]}`, out[reviewAt][1]];
+  }
   if (pr.unresolved) out.push([`${pr.unresolved} unresolved`, T.queue]);
   return out;
 }
