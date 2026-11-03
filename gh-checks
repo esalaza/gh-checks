@@ -588,12 +588,12 @@ function row(pieces) {
 // unsaid, as the checks and review state already explain it.
 // Whether the PR can merge, for its counts line: "conflicts", "behind main"
 // or "ready to merge", as [text, tone]; nothing for a draft or while blocked.
-// GitHub calls a PR whose checks aren't all done UNSTABLE but mergeable when
-// the target branch requires none of them (as in a stack), so it isn't called
-// ready while any check is still running or queued.
+// GitHub calls a PR whose checks haven't all passed UNSTABLE but mergeable
+// when the target branch requires none of them (as in a stack), so it isn't
+// called ready while any check is running, queued, failed or cancelled.
 function mergeStatus(pr) {
   if (pr.draft) return null;
-  if (pr.mergeState === 'UNSTABLE' && pr.checks.some((c) => c.cat === 'run' || c.cat === 'queue')) return null;
+  if (pr.mergeState === 'UNSTABLE' && pr.checks.some((c) => c.cat !== 'pass' && c.cat !== 'skip')) return null;
   return {
     DIRTY: ['conflicts', T.fail], BEHIND: [`behind ${pr.base || 'base'}`, T.queue],
     CLEAN: ['ready to merge', T.pass], HAS_HOOKS: ['ready to merge', T.pass], UNSTABLE: ['ready to merge', T.pass],
