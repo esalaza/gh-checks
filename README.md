@@ -104,9 +104,9 @@ run above each pull request.
 A line below that says where the pull request stands: **conflicts**, **behind
 main** or **ready to merge**; who requested changes and who approved it, or who it is
 **waiting on**; and how many review comments are **unresolved**. When the
-target branch needs a code owner's approval, the code owners still to review
-come first in **waiting on**, marked with a shield and padlock (⚿ without a
-Nerd Font).
+target branch needs a code owner's approval and one has still to review, the
+**waiting on** list leads with a shield and padlock (⚿ without a Nerd Font) and
+names the code owners first.
 
 A check's name is faint when the target branch doesn't require it, so the
 failures that block merging stand out.

@@ -601,12 +601,13 @@ function prStatus(pr) {
   if (!changes && !by('APPROVED') && pr.reviewDecision === 'REVIEW_REQUIRED' && !pr.waitingOn.length && !pr.draft) {
     out.push(['review required', T.queue]);
   }
-  // Code owners still to review come first, marked, when the branch needs one
-  // of them to approve; GitHub drops their request once they have reviewed.
+  // When the branch needs a code owner's approval and GitHub is still waiting
+  // on one, the line leads with a shield and names the code owners first.
+  // GitHub drops their request once they have reviewed.
   const owner = (r) => pr.codeOwners && r.codeOwner;
-  const waiting = [...pr.waitingOn.filter(owner).map((r) => `${ICONS.codeOwner} ${r.name}`),
-                   ...pr.waitingOn.filter((r) => !owner(r)).map((r) => r.name)];
-  if (waiting.length) out.push([`waiting on ${waiting.join(', ')}`, T.queue]);
+  const waiting = [...pr.waitingOn.filter(owner), ...pr.waitingOn.filter((r) => !owner(r))].map((r) => r.name);
+  const shield = pr.waitingOn.some(owner) ? `${ICONS.codeOwner} ` : '';
+  if (waiting.length) out.push([`${shield}waiting on ${waiting.join(', ')}`, T.queue]);
   if (pr.unresolved) out.push([`${pr.unresolved} unresolved`, T.queue]);
   return out;
 }
