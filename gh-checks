@@ -58,7 +58,7 @@ Mouse:
   right-click a PR      copy its number
   Hold Option (macOS terminals) or Shift (most others) to select text.
 
-Symbols: ✗ failed  ● running  ○ queued (yellow)  ⊘ cancelled  ✓ passed  ○ skipped (grey)
+Symbols: ✘ failed  ● running  ○ queued (yellow)  ⊘ cancelled  ✔ passed  ○ skipped (grey)
          ⚿ (a shield with a padlock in a Nerd Font) a code owner whose approval
            the branch needs
 `;
@@ -479,7 +479,7 @@ const bgColour = Number((process.env.COLORFGBG || '').split(';').pop());
 let themeName = opts.theme || (tty || bgColour === 7 || bgColour === 15 ? 'light' : 'dark');
 let T = THEMES[themeName]; // swapped live by the t key
 
-const SYM = { fail: '✗', run: '●', queue: '○', cancel: '⊘', pass: '✓', skip: '○' };
+const SYM = { fail: '✘', run: '●', queue: '○', cancel: '⊘', pass: '✔', skip: '○' };
 const sym = (cat) => sgr(T[cat], SYM[cat]);
 
 let hidePassed = opts.hidePassed;
@@ -647,8 +647,8 @@ function packStatus(pieces, w, start = null) {
   return lines;
 }
 
-// One icon for the whole PR: red ✗ when a check failed or was cancelled,
-// orange ● while any is running, queued or expected, green ✓ when all passed
+// One icon for the whole PR: red ✘ when a check failed or was cancelled,
+// orange ● while any is running, queued or expected, green ✔ when all passed
 // or were skipped, grey ○ with no checks. Where the target branch requires
 // checks, only those can turn it red; optional failures stay in the list.
 function overall(pr) {

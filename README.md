@@ -74,20 +74,20 @@ copy the number, scroll with the wheel and click a tab to switch sections. Hold 
 
 | Symbol | Meaning |
 | --- | --- |
-| ✗ | Failed |
+| ✘ | Failed |
 | ● | Running |
 | ○ (yellow) | Queued |
 | ⊘ | Cancelled |
-| ✓ | Passed |
+| ✔ | Passed |
 | ○ (grey) | Skipped |
 
 Checks posted by apps rather than by a workflow appear under **Other checks**.
 
 The **Pull requests** heading counts them, such as **(4 ready, 1 draft)**.
 
-An icon at the start of each pull request's title sums up its checks: ✗ when a
+An icon at the start of each pull request's title sums up its checks: ✘ when a
 required check failed or was cancelled, ● while any is running or waiting,
-✓ when all passed.
+✔ when all passed.
 
 A draft's title is grey, so the pull requests ready for review stand out.
 Under each pull request's title, its counts are followed by whether it can
