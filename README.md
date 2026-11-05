@@ -7,7 +7,9 @@ GitHub's pull request list rolls all of a PR's checks into one icon, and keeps
 showing a red ✗ while a failed job is being re-run. `gh checks` lays the checks
 out beside each pull request instead, as one list ordered by status or as a
 table with a column per workflow, so you can see at a glance what is failing, what is running and what is queued.
-A re-run replaces the earlier attempt, so a running re-run shows as running.
+A re-run replaces the earlier attempt, so a running re-run shows as running,
+and a run cancelled because the job started again for another event (such as a
+review) is dropped.
 
 ![gh checks moving between checks, showing passed checks, re-running failed jobs and switching sections](demo.gif)
 

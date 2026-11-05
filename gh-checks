@@ -179,7 +179,14 @@ function toPr(node) {
     const prev = latest.get(key);
     if (!prev || check.t >= prev.t) latest.set(key, check);
   }
-  const checks = [...latest.values()];
+  // A run cancelled by a later run of the same job for another event (a review
+  // starting the job again, say) has been replaced too, so it is dropped.
+  const newest = new Map();
+  for (const c of latest.values()) {
+    const job = `${c.wf}\u0000${c.name}`;
+    if (!newest.has(job) || c.t > newest.get(job)) newest.set(job, c.t);
+  }
+  const checks = [...latest.values()].filter((c) => !(c.wf && c.cat === 'cancel' && newest.get(`${c.wf}\u0000${c.name}`) > c.t));
   // Each check is drawn under its workflow's heading, so its own name is enough,
   // unless the workflow ran it for more than one event, or for an unusual one.
   const uses = {};
