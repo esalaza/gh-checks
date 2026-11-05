@@ -91,7 +91,8 @@ An icon at the start of each pull request's title sums up its checks: ✘ when a
 required check failed or was cancelled, ● while any is running or waiting,
 ✔ when all passed.
 
-A draft's title is grey, so the pull requests ready for review stand out.
+A draft's title is grey and its number not bold, so the pull requests ready for
+review stand out.
 Under each pull request's title, its counts are followed by whether it can
 merge (**conflicts**, **behind main** or **ready to merge**), then **draft** for
 a draft and **auto-merge** for one that will merge itself once its checks pass

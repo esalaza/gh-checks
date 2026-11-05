@@ -744,7 +744,8 @@ function buildLines(prs, cols, sel, copied = null) {
     // Just copied: the number turns green, with "copied" beneath it where the
     // gutter is wide enough.
     const justCopied = copied === `${pr.repo}#${pr.number}`;
-    const number = sgr(justCopied ? T.pass : T.number, prefix);
+    // A draft's number is the same blue, not bold, to go with its grey title.
+    const number = sgr(justCopied ? T.pass : pr.draft ? T.repo : T.number, prefix);
     // A stacked PR lists the open PRs below it under its number, nearest
     // first, as far as four; "↓ #12" squeezes to "↓#12" in a narrow gutter.
     const below = pr.stack?.below ?? [];
