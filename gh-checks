@@ -45,6 +45,7 @@ Keys:
   s                     sort by status (failing first, the default) or by most
                         recently updated
   R                     re-run failed jobs (selected check, or the whole PR)
+  d                     convert the selected PR to a draft, or mark it ready
   r                     refresh now
   p                     hide / show passed and skipped checks
   1 2 3                 Assigned / Mine / Review requested
@@ -55,6 +56,8 @@ Mouse:
   wheel                 scroll
   click a tab           switch section
   click a PR's #number  copy it (#123) to the clipboard
+  click → draft/ready   on the selected PR: convert it to a draft, or mark it
+                        ready (asks first; click yes or press y)
   right-click a PR      copy its number
   Hold Option (macOS terminals) or Shift (most others) to select text.
 
@@ -761,6 +764,22 @@ function buildLines(prs, cols, sel, copied = null) {
     // status lines below it are about reviews.
     const textW = prW - indent - 2;
     const countLines = packStatus([mergeStatus(pr), ...tags].filter(Boolean), textW, [sum.text, sum.w]);
+    // The selected PR offers a click to switch it between draft and ready, at
+    // the end of its counts (or on a line of its own when they are full).
+    let draftLink = null;
+    if (sel && sel.pr === i && opts.mouse) {
+      const text = pr.draft ? '→ ready' : '→ draft';
+      const last = countLines[countLines.length - 1];
+      const at = last[1] + 2 + width(text) <= textW ? last[1] + 2 : 0;
+      if (at) {
+        last[0] += `  ${sgr(T.repo, text)}`;
+        last[1] += 2 + width(text);
+      } else {
+        countLines.push([sgr(T.repo, text), width(text)]);
+      }
+      const x0 = 2 + indent + 2 + at;
+      draftLink = { row: titleLines.length + countLines.length - 1, x0, x1: x0 + width(text) };
+    }
     const statusLines = [...countLines, ...packStatus(prStatus(pr), textW)];
     const prCell = [
       ...titleLines.map((t, k) => [
@@ -780,6 +799,7 @@ function buildLines(prs, cols, sel, copied = null) {
       const at = lines.length;
       hits[at] = [{ pr: i, check: -1, x0: 0, x1: 2 + prW }];
       if (r === 0) hits[at].unshift({ pr: i, check: -1, x0: 2, x1: 2 + width(prefix), copy: true });
+      if (draftLink?.row === r) hits[at].unshift({ pr: i, check: -1, x0: draftLink.x0, x1: draftLink.x1, draft: true });
       const [prText, prTextW] = prCell[r] || ['', 0];
       const prPiece = selectedPr
         ? [2, highlight(prText + ' '.repeat(Math.max(0, prW - prTextW))), prW]
@@ -1000,7 +1020,7 @@ function askRerun() {
   }
   const what = check ? `"${check.label}"` : `#${pr.number}`;
   state.confirm = {
-    text: `Re-run failed jobs for ${what} (${runIds.length} workflow run${runIds.length > 1 ? 's' : ''})? y/n`,
+    text: `Re-run failed jobs for ${what} (${runIds.length} workflow run${runIds.length > 1 ? 's' : ''})?`,
     action: async () => {
       flash(`Re-running failed jobs for ${what}…`, T.run);
       render();
@@ -1008,6 +1028,31 @@ function askRerun() {
         if (!opts.demo) for (const id of runIds) await gh(['run', 'rerun', String(id), '--failed', '-R', pr.repo]);
         flash(`Re-run started for ${what}.`);
         setTimeout(() => refresh(), 3000);
+      } catch (err) {
+        flash(err.message, T.fail);
+      }
+      render();
+    },
+  };
+}
+
+// Switches the selected PR between draft and ready for review, once confirmed.
+function askDraft() {
+  const { pr } = selected();
+  if (!pr) return;
+  const toDraft = !pr.draft;
+  state.confirm = {
+    text: toDraft ? `Convert #${pr.number} to draft?` : `Mark #${pr.number} as ready for review?`,
+    action: async () => {
+      try {
+        if (opts.demo) {
+          for (const p of demoData().sections.flat()) if (p.number === pr.number) p.draft = toDraft;
+        } else {
+          await gh(['pr', 'ready', String(pr.number), '-R', pr.repo, ...(toDraft ? ['--undo'] : [])]);
+        }
+        pr.draft = toDraft; // shown straight away, then confirmed by a refresh
+        flash(toDraft ? `#${pr.number} converted to draft.` : `#${pr.number} marked ready for review.`);
+        setTimeout(() => refresh(), 2000);
       } catch (err) {
         flash(err.message, T.fail);
       }
@@ -1078,7 +1123,13 @@ function render() {
   while (visible.length < bodyH) visible.push('');
 
   let footer;
-  if (state.confirm) footer = sgr(T.confirm, ` ${state.confirm.text}`);
+  if (state.confirm) {
+    // A question ends with "y yes  n no", which can be clicked as well as typed.
+    const question = ` ${state.confirm.text}  `;
+    const yes = width(question);
+    state.confirmHits = { yes: [yes, yes + 5], no: [yes + 7, yes + 11] };
+    footer = sgr(T.confirm, question) + `${sgr(T.key, 'y')} ${sgr(T.confirm, 'yes')}  ${sgr(T.key, 'n')} ${sgr(T.confirm, 'no')}`;
+  }
   else if (state.flash && state.flash.until > Date.now()) footer = sgr(state.flash.code, ` ${state.flash.text}`);
   else {
     // As many "key action" pairs as fit, keys bright and actions dim.
@@ -1138,6 +1189,7 @@ function onKey(key) {
     }
     case 'r': refresh(); break;
     case 'R': askRerun(); break;
+    case 'd': askDraft(); break;
     case 'y': copyPr('number'); break;
     case 'Y': copyPr('url'); break;
     case 'b': nextBackground(); break;
@@ -1166,7 +1218,11 @@ function onKey(key) {
 
 // x and y are 1-based screen positions, as the terminal reports them.
 function onMouse(button, x, y) {
-  if (state.confirm) return onKey('');
+  if (state.confirm) {
+    const { yes } = state.confirmHits ?? {};
+    const onYes = button === 0 && y === process.stdout.rows && yes && x - 1 >= yes[0] && x - 1 < yes[1];
+    return onKey(onYes ? 'y' : '');
+  }
   if (button === 64 || button === 65) {
     state.scroll += button === 64 ? -3 : 3; // render clamps it
     state.follow = false;
@@ -1187,6 +1243,11 @@ function onMouse(button, x, y) {
   }
   const hit = state.hits[y - 5 + state.scroll]?.find((h) => x - 1 >= h.x0 && x - 1 < h.x1);
   if (!hit) return;
+  if (hit.draft) {
+    Object.assign(state, { pr: hit.pr, check: -1, follow: true });
+    askDraft();
+    return render();
+  }
   if (hit.copy) {
     const pr = prs()[hit.pr];
     Object.assign(state, { pr: hit.pr, check: -1, follow: true });

@@ -57,6 +57,7 @@ anywhere else, it lists them from every repository.
 | `y` | Copy the selected pull request's number (`#123`) to the clipboard |
 | `Y` | Copy the selected pull request's URL |
 | `R` | Re-run failed jobs (the selected check, or the whole pull request) |
+| `d` | Convert the selected pull request to a draft, or mark a draft ready for review |
 | `r` | Refresh now |
 | `p` | Show / hide passed and skipped checks |
 | `v` | Switch between the list and table layouts |
@@ -69,7 +70,10 @@ anywhere else, it lists them from every repository.
 
 With the mouse: click a pull request or check to select it, click it again to
 open it, click a pull request's number (or right-click anywhere in its row) to
-copy the number, scroll with the wheel and click a tab to switch sections. Hold Option
+copy the number, scroll with the wheel and click a tab to switch sections. The
+selected pull request shows **→ draft** (or **→ ready** on a draft) after its
+counts: click it to switch. Questions such as "Convert #482 to draft?" can be
+answered by clicking **yes** or **no** as well as with `y` or `n`. Hold Option
 (macOS terminals) or Shift (most others) to select text.
 
 ### Symbols
